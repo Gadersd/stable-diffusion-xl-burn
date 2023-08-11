@@ -33,7 +33,7 @@ use crate::model::{load::*, autoencoder::load::load_autoencoder, unet::load::loa
 
 pub fn load_embedder<B: Backend>(path: &str, device: &B::Device) -> Result<Embedder<B>, Box<dyn Error>> {
     let clip = load_clip_text_transformer(&format!("{}/{}", path, "clip"), device, false)?;
-    let open_clip = load_clip_text_transformer(&format!("{}/{}", path, "clip"), device, true)?;
+    let open_clip = load_clip_text_transformer(&format!("{}/{}", path, "open_clip"), device, true)?;
 
     let clip_tokenizer = SimpleTokenizer::new()?;
     let open_clip_tokenizer = OpenClipTokenizer::new()?;
@@ -47,8 +47,8 @@ pub fn load_embedder<B: Backend>(path: &str, device: &B::Device) -> Result<Embed
 }
 
 pub fn load_diffuser<B: Backend>(path: &str, device: &B::Device) -> Result<Diffuser<B>, Box<dyn Error>> {
-    let n_steps = load_usize::<B>("n_steps", path, device)?;
-    let alpha_cumulative_products = load_tensor::<B, 1>("alphas_cumprod", path, device)?.into();
+    let n_steps = 1000; //load_usize::<B>("n_steps", path, device)?;
+    let alpha_cumulative_products = offset_cosine_schedule_cumprod::<B>(n_steps).into();//load_tensor::<B, 1>("alphas_cumprod", path, device)?.into();
     let diffusion = load_unet(&format!("{}/{}", path, "unet"), device)?;
 
     Ok(Diffuser {

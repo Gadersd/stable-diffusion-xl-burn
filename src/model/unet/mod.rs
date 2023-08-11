@@ -22,10 +22,12 @@ use super::attention::qkv_attention;
 
 
 pub fn timestep_embedding<B: Backend>(timesteps: Tensor<B, 1, Int>, dim: usize, max_period: usize) -> Tensor<B, 2> {
+    let [n_batch] = timesteps.dims();
+
     let half = dim / 2;
     let freqs = ( to_float(Tensor::arange_device(0..half, &timesteps.device())) * (-(max_period as f64).ln() / half as f64 ) ).exp();
-    let args = to_float(timesteps) * freqs;
-    Tensor::cat(vec![args.clone().cos(), args.sin()], 0).unsqueeze()
+    let args = to_float(timesteps).unsqueeze::<2>().transpose().repeat(1, half) * freqs.unsqueeze();
+    Tensor::cat(vec![args.clone().cos(), args.sin()], 1)
 }
 
 

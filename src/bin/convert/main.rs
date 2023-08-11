@@ -13,6 +13,7 @@ use burn::{
     module::{Module, Param},
     nn,
     tensor::{
+        self, 
         backend::Backend,
         Tensor,
     },
@@ -153,8 +154,8 @@ fn main() {
     //let device = NdArrayDevice::Cpu;
 
     type Backend = TchBackend<f32>;
-    //let device = TchDevice::Cpu;
-    let device = TchDevice::Cuda(0);
+    let cpu_device = TchDevice::Cpu;
+    let device = TchDevice::Cpu; //TchDevice::Cuda(0);
 
 
     /*let n_batch = 1;
@@ -182,7 +183,7 @@ fn main() {
     let text = "A monkey slapping its ass.";
 
     let conditioning = {
-        let embedder: Embedder<Backend> = load_embedder("params/embedder", &device).unwrap();
+        let embedder: Embedder<Backend> = load_embedder("params", &device).unwrap();
 
         let size = Tensor::from_ints([1024, 1024]).to_device(&device).unsqueeze();
         let crop = Tensor::from_ints([0, 0]).to_device(&device).unsqueeze();
@@ -192,16 +193,16 @@ fn main() {
     };
 
     let latent = {
-        let diffuser = load_diffuser("params/diffuser", &device).unwrap();
+        let diffuser = load_diffuser("params", &device).unwrap();
 
         let unconditional_guidance_scale = 7.5;
-        let n_steps = 20;
+        let n_steps = 1;
 
         diffuser.sample_latent(conditioning, unconditional_guidance_scale, n_steps)
     };
 
     let images = {
-        let latent_decoder = load_latent_decoder("params/latent_decoder", &device).unwrap();
+        let latent_decoder = load_latent_decoder("params", &device).unwrap();
 
         latent_decoder.latent_to_image(latent)
     };

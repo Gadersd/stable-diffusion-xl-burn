@@ -22,7 +22,7 @@ use burn::{
 //use burn_ndarray::{NdArrayBackend, NdArrayDevice};
 use burn_tch::{TchBackend, TchDevice};
 
-use burn::record::{self, Recorder, NamedMpkGzFileRecorder, HalfPrecisionSettings};
+use burn::record::{self, Recorder, BinFileRecorder, HalfPrecisionSettings};
 
 fn convert_embedder_dump_to_model<B: Backend>(dump_path: &str, model_name: &str, device: &B::Device) -> Result<(), Box<dyn Error>> {
     println!("Loading dump...");
@@ -55,7 +55,7 @@ fn convert_diffuser_dump_to_model<B: Backend>(dump_path: &str, model_name: &str,
 }
 
 fn save_model_file<B: Backend, M: Module<B>>(model: M, name: &str) -> Result<(), record::RecorderError> {
-    NamedMpkGzFileRecorder::<HalfPrecisionSettings>::new()
+    BinFileRecorder::<HalfPrecisionSettings>::new()
     .record(
         model.into_record(),
         name.into(),

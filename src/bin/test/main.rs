@@ -22,22 +22,22 @@ use burn::{
 //use burn_ndarray::{NdArrayBackend, NdArrayDevice};
 use burn_tch::{TchBackend, TchDevice};
 
-use burn::record::{self, Recorder, NamedMpkGzFileRecorder, HalfPrecisionSettings};
+use burn::record::{self, Recorder, BinFileRecorder, HalfPrecisionSettings};
 
 fn load_embedder_model<B: Backend>(model_name: &str) -> Result<Embedder<B>, record::RecorderError> {
-    NamedMpkGzFileRecorder::<HalfPrecisionSettings>::new()
+    BinFileRecorder::<HalfPrecisionSettings>::new()
     .load(model_name.into())
     .map(|record| EmbedderConfig::new().init().load_record(record))
 }
 
 fn load_diffuser_model<B: Backend>(model_name: &str) -> Result<Diffuser<B>, record::RecorderError> {
-    NamedMpkGzFileRecorder::<HalfPrecisionSettings>::new()
+    BinFileRecorder::<HalfPrecisionSettings>::new()
     .load(model_name.into())
     .map(|record| DiffuserConfig::new().init().load_record(record))
 }
 
 fn load_latent_decoder_model<B: Backend>(model_name: &str) -> Result<LatentDecoder<B>, record::RecorderError> {
-    NamedMpkGzFileRecorder::<HalfPrecisionSettings>::new()
+    BinFileRecorder::<HalfPrecisionSettings>::new()
     .load(model_name.into())
     .map(|record| LatentDecoderConfig::new().init().load_record(record))
 }

@@ -1,5 +1,7 @@
 use super::Tokenizer;
 
+use burn::module::Module;
+
 use std::collections::HashMap;
 use regex::Regex;
 
@@ -66,6 +68,7 @@ fn load_vocab(path: &str) -> io::Result<Vec<String>> {
     io::BufReader::new(file).lines().collect::<io::Result<Vec<String>>>()
 }
 
+#[derive(Module, Clone, Debug)]
 pub struct OpenClipTokenizer {
     byte_encoder: HashMap<u8, char>,
     byte_decoder: HashMap<char, u8>,

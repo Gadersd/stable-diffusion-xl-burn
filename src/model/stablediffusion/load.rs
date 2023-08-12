@@ -47,8 +47,8 @@ pub fn load_embedder<B: Backend>(path: &str, device: &B::Device) -> Result<Embed
 }
 
 pub fn load_diffuser<B: Backend>(path: &str, device: &B::Device) -> Result<Diffuser<B>, Box<dyn Error>> {
-    let n_steps = 1000; //load_usize::<B>("n_steps", path, device)?;
-    let alpha_cumulative_products = offset_cosine_schedule_cumprod::<B>(n_steps).into();//load_tensor::<B, 1>("alphas_cumprod", path, device)?.into();
+    let n_steps = load_usize::<B>("n_steps", path, device)?;
+    let alpha_cumulative_products = load_tensor::<B, 1>("alphas_cumprod", path, device)?.into();
     let diffusion = load_unet(&format!("{}/{}", path, "unet"), device)?;
 
     Ok(Diffuser {

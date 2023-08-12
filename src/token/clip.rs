@@ -1,5 +1,7 @@
 use super::Tokenizer;
 
+use burn::module::Module;
+
 use std::collections::HashMap;
 use regex::Regex;
 
@@ -74,6 +76,7 @@ fn construct_vocab(chars: impl Iterator<Item=char> + Clone, merges: &[(String, S
     return vocab;
 }
 
+#[derive(Module, Clone, Debug)]
 pub struct SimpleTokenizer {
     byte_encoder: HashMap<u8, char>,
     byte_decoder: HashMap<char, u8>,

@@ -6,7 +6,7 @@ use stablediffusion::model::unet::{UNet, UNetConfig, load::load_unet};
 use stablediffusion::model::autoencoder::{Decoder, DecoderConfig, load::load_decoder};
 use stablediffusion::model::autoencoder::{Encoder, EncoderConfig, load::load_encoder};
 use stablediffusion::model::clip::{CLIP, CLIPConfig, load::load_clip_text_transformer};
-use stablediffusion::model::stablediffusion::{Embedder, Diffuser, LatentDecoder, load::*};
+use stablediffusion::model::stablediffusion::{offset_cosine_schedule_cumprod, Embedder, EmbedderConfig, Diffuser, DiffuserConfig, LatentDecoder, LatentDecoderConfig, load::*};
 
 use burn::{
     config::Config, 
@@ -149,53 +149,80 @@ fn test_tiny_decoder<B: Backend>(device: &B::Device) {
     println!("Output: {:?}", output.into_data());
 }
 
+use num_traits::cast::ToPrimitive;
+use stablediffusion::model::stablediffusion::Conditioning;
+use burn::tensor::ElementConversion;
+
+fn switch_backend<B1: Backend, B2: Backend, const D: usize>(x: Tensor<B1, D>, device: &B2::Device) -> Tensor<B2, D> {
+    let data = x.into_data();
+
+    let data = tensor::Data::new(data.value.into_iter().map(|v| v.elem()).collect(), data.shape);
+
+    Tensor::from_data_device(data, device)
+}
+
 fn main() {
     //type Backend = NdArrayBackend<f32>;
     //let device = NdArrayDevice::Cpu;
 
     type Backend = TchBackend<f32>;
+    type Backend_f16 = TchBackend<tensor::f16>;
+
     let cpu_device = TchDevice::Cpu;
-    let device = TchDevice::Cpu; //TchDevice::Cuda(0);
+    let device = /*TchDevice::Cpu;*/ TchDevice::Cuda(0);
 
     //test_clip::<Backend>(&device);
     //test_tiny_open_clip::<Backend>(&device);
     //test_open_clip::<Backend>(&device);
 
-    let text = "A monkey slapping its ass.";
+    let text = "A beautiful photo of a seaside little stone dwelling.";
 
     let conditioning = {
+        println!("Loading embedder...");
         let embedder: Embedder<Backend> = load_embedder_model("embedder").unwrap();
+        let embedder = embedder.to_device(&device);
 
         let size = Tensor::from_ints([1024, 1024]).to_device(&device).unsqueeze();
         let crop = Tensor::from_ints([0, 0]).to_device(&device).unsqueeze();
         let ar = Tensor::from_ints([1024, 1024]).to_device(&device).unsqueeze();
 
+        println!("Running embedder...");
         embedder.text_to_conditioning(text, size, crop, ar)
     };
 
-    println!("Conditioning: {:?}", conditioning.context.clone().slice([0..1, 0..1, 0..100]).into_data());
-    println!("Conditioning: {:?}", conditioning.unconditional_context.clone().slice([0..1, 0..100]).into_data());
-    println!("Conditioning: {:?}", conditioning.channel_context.clone().slice([0..1, 0..100]).into_data());
-    println!("Conditioning: {:?}", conditioning.unconditional_channel_context.clone().slice([0..100]).into_data());
+    let conditioning = Conditioning {
+        unconditional_context: switch_backend::<Backend, Backend_f16, 2>(conditioning.unconditional_context, &device), 
+        context: switch_backend::<Backend, Backend_f16, 3>(conditioning.context, &device), 
+        unconditional_channel_context: switch_backend::<Backend, Backend_f16, 1>(conditioning.unconditional_channel_context, &device), 
+        channel_context: switch_backend::<Backend, Backend_f16, 2>(conditioning.channel_context, &device), 
+    };
 
     let latent = {
-        let diffuser = load_diffuser_model("diffuser").unwrap();
+        println!("Loading diffuser...");
+        let diffuser: Diffuser<Backend_f16> = load_diffuser_model("diffuser").unwrap();
+        let diffuser = diffuser.to_device(&device);
 
         let unconditional_guidance_scale = 7.5;
-        let n_steps = 1;
+        let n_steps = 30;
 
+        println!("Running diffuser...");
         diffuser.sample_latent(conditioning, unconditional_guidance_scale, n_steps)
     };
 
-    println!("Latent: {:?}", latent.clone().slice([0..1, 0..1, 0..100, 0..100]).into_data());
+    let latent = switch_backend::<Backend_f16, Backend, 4>(latent, &device);
 
-    /*let images = {
-        let latent_decoder = load_latent_model("latent_decoder").unwrap();
+    let images = {
+        println!("Loading latent decoder...");
+        let latent_decoder: LatentDecoder<Backend> = load_latent_decoder_model("latent_decoder").unwrap();
+        let latent_decoder = latent_decoder.to_device(&device);
 
+        println!("Running decoder...");
         latent_decoder.latent_to_image(latent)
     };
 
-    save_images(&images, "img", 1024, 1024).unwrap();*/
+    println!("Saving images...");
+    save_images(&images, "img", 1024, 1024).unwrap();
+    println!("Done.");
 
     return;
 

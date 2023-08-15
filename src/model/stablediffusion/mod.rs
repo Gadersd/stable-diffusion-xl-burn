@@ -196,8 +196,6 @@ impl<B: Backend> LatentDecoder<B> {
         let [n_batch, _, _, _] = latent.dims();
         let image = self.autoencoder.decode_latent(latent * (1.0 / 0.13025));
 
-        println!("Image: {:?}", image.clone().slice([0..1, 0..1, 0..100, 0..100]).into_data());
-
         let n_channel = 3;
         let height = 1024;
         let width = 1024;
@@ -232,7 +230,7 @@ pub struct DiffuserConfig {}
 impl DiffuserConfig {
     pub fn init<B: Backend>(&self) -> Diffuser<B> {
         let n_steps = 1000;
-        let alpha_cumulative_products = offset_cosine_schedule_cumprod::<B>(n_steps).into();
+        let alpha_cumulative_products = Tensor::zeros([1]).into(); //offset_cosine_schedule_cumprod::<B>(n_steps).into();
         let diffusion = UNetConfig::new(2816, 4, 4, 320, 64, 2048).init();
 
         Diffuser {
@@ -246,7 +244,7 @@ impl DiffuserConfig {
 #[derive(Module, Debug)]
 pub struct Diffuser<B: Backend> {
     n_steps: usize, 
-    alpha_cumulative_products: Param<Tensor<B, 1>>, 
+    pub alpha_cumulative_products: Param<Tensor<B, 1>>, 
     pub diffusion: UNet<B>, 
 }
 
@@ -294,13 +292,11 @@ impl<B: Backend> Diffuser<B> {
         //let latent = latent.repeat(0, 2);
 
         let unconditional_latent = self.diffusion.forward(
-            latent.clone().zeros_like(), 
-            /*timestep.clone()*/Tensor::from_ints([1]), 
-            conditioning.unconditional_context.unsqueeze().repeat(0, n_batch).zeros_like(), 
-            conditioning.unconditional_channel_context.unsqueeze().repeat(0, n_batch).zeros_like(), 
+            latent.clone(), 
+            timestep.clone(), 
+            conditioning.unconditional_context.unsqueeze().repeat(0, n_batch), 
+            conditioning.unconditional_channel_context.unsqueeze().repeat(0, n_batch), 
         );
-
-        println!("Pred: {:?}", unconditional_latent.clone().slice([0..1, 0..1, 0..10, 0..10]).into_data());
 
         let conditional_latent = self.diffusion.forward(
             latent, 
@@ -454,18 +450,18 @@ fn cosine_schedule<B: Backend>(n_steps: usize) -> Tensor<B, 1> {
         .cos()
 }
 
-fn offset_cosine_schedule<B: Backend>(n_steps: usize) -> Tensor<B, 1> {
+fn offset_cosine_schedule<B: Backend>(n_steps: usize, device: &B::Device) -> Tensor<B, 1> {
     let min_signal_rate: f64 = 0.02;
     let max_signal_rate: f64 = 0.95;
     let start_angle = max_signal_rate.acos();
     let end_angle = min_signal_rate.acos();
 
-    let times = Tensor::arange(1..n_steps + 1);
+    let times = Tensor::arange_device(1..n_steps + 1, device);
 
     let diffusion_angles = to_float(times) * ( (end_angle - start_angle) / n_steps as f64) + start_angle;
     diffusion_angles.cos()
 }
 
-fn offset_cosine_schedule_cumprod<B: Backend>(n_steps: usize) -> Tensor<B, 1> {
-    offset_cosine_schedule::<B>(n_steps).powf(2.0)
+pub fn offset_cosine_schedule_cumprod<B: Backend>(n_steps: usize, device: &B::Device) -> Tensor<B, 1> {
+    offset_cosine_schedule::<B>(n_steps, device).powf(2.0)
 }

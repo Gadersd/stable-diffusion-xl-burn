@@ -348,7 +348,6 @@ pub struct PaddedConv2d<B: Backend> {
 
 impl<B: Backend> PaddedConv2d<B> {
     fn forward(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
-        println!("{} {} {:?} {:?}", self.kernel_size, self.stride, self.padding, self.padding_actual);
         let [n_batch, n_channel, height, width] = x.dims();
 
         let desired_height = (self.padding.pad_top + self.padding.pad_bottom + height - self.kernel_size) / self.stride + 1;

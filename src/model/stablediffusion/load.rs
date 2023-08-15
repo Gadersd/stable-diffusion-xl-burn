@@ -60,9 +60,11 @@ pub fn load_diffuser<B: Backend>(path: &str, device: &B::Device) -> Result<Diffu
 
 pub fn load_latent_decoder<B: Backend>(path: &str, device: &B::Device) -> Result<LatentDecoder<B>, Box<dyn Error>> {
     let autoencoder = load_autoencoder(&format!("{}/{}", path, "autoencoder"), device)?;
+    let scale_factor = load_f32::<B>("scale_factor", path, device)?.into();
 
     Ok(LatentDecoder {
         autoencoder, 
+        scale_factor, 
     })
 }
 

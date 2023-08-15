@@ -24,22 +24,28 @@ use burn_tch::{TchBackend, TchDevice};
 
 use burn::record::{self, Recorder, BinFileRecorder, HalfPrecisionSettings};
 
-fn load_embedder_model<B: Backend>(model_name: &str) -> Result<Embedder<B>, record::RecorderError> {
-    BinFileRecorder::<HalfPrecisionSettings>::new()
-    .load(model_name.into())
-    .map(|record| EmbedderConfig::new().init().load_record(record))
+fn load_embedder_model<B: Backend>(model_name: &str) -> Result<Embedder<B>, Box<dyn Error>> {
+    let config = EmbedderConfig::load(&format!("{}.cfg", model_name))?;
+    let record = BinFileRecorder::<HalfPrecisionSettings>::new()
+        .load(model_name.into())?;
+
+    Ok( config.init().load_record(record) )
 }
 
-fn load_diffuser_model<B: Backend>(model_name: &str) -> Result<Diffuser<B>, record::RecorderError> {
-    BinFileRecorder::<HalfPrecisionSettings>::new()
-    .load(model_name.into())
-    .map(|record| DiffuserConfig::new().init().load_record(record))
+fn load_diffuser_model<B: Backend>(model_name: &str) -> Result<Diffuser<B>, Box<dyn Error>> {
+    let config = DiffuserConfig::load(&format!("{}.cfg", model_name))?;
+    let record = BinFileRecorder::<HalfPrecisionSettings>::new()
+        .load(model_name.into())?;
+    
+    Ok( config.init().load_record(record) )
 }
 
-fn load_latent_decoder_model<B: Backend>(model_name: &str) -> Result<LatentDecoder<B>, record::RecorderError> {
-    BinFileRecorder::<HalfPrecisionSettings>::new()
-    .load(model_name.into())
-    .map(|record| LatentDecoderConfig::new().init().load_record(record))
+fn load_latent_decoder_model<B: Backend>(model_name: &str) -> Result<LatentDecoder<B>, Box<dyn Error>> {
+    let config = LatentDecoderConfig::load(&format!("{}.cfg", model_name))?;
+    let record = BinFileRecorder::<HalfPrecisionSettings>::new()
+        .load(model_name.into())?;
+
+    Ok( config.init().load_record(record) )
 }
 
 use stablediffusion::helper::to_float;
@@ -175,7 +181,7 @@ fn main() {
     //test_tiny_open_clip::<Backend>(&device);
     //test_open_clip::<Backend>(&device);
 
-    let text = "A beautiful photo of a seaside little stone dwelling.";
+    let text = "A beautiful photo of a seaside stone castle.";
 
     let conditioning = {
         println!("Loading embedder...");

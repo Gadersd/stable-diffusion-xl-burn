@@ -19,7 +19,7 @@ use burn::{
 use crate::model::attention::{qkv_attention, attn_decoder_mask};
 
 
-#[derive(Config)]
+#[derive(Config, Debug)]
 pub struct CLIPConfig {
     n_vocab: usize, 
     n_state: usize, 

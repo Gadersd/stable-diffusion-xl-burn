@@ -174,13 +174,18 @@ impl<B: Backend> StableDiffusion<B> {
 
 
 #[derive(Config, Debug)]
-pub struct LatentDecoderConfig {}
+pub struct LatentDecoderConfig {
+    scale_factor: f64, 
+}
 
 impl LatentDecoderConfig {
     pub fn init<B: Backend>(&self) -> LatentDecoder<B> {
         let autoencoder = AutoencoderConfig::new().init();
+        let scale_factor = self.scale_factor;
+        
         LatentDecoder {
             autoencoder, 
+            scale_factor, 
         }
     }
 }
@@ -189,12 +194,13 @@ impl LatentDecoderConfig {
 #[derive(Module, Debug)]
 pub struct LatentDecoder<B: Backend> {
     autoencoder: Autoencoder<B>, 
+    scale_factor: f64, 
 }
 
 impl<B: Backend> LatentDecoder<B> {
     pub fn latent_to_image(&self, latent: Tensor<B, 4>) -> Vec<Vec<u8>> {
         let [n_batch, _, _, _] = latent.dims();
-        let image = self.autoencoder.decode_latent(latent * (1.0 / 0.13025));
+        let image = self.decode_latent(latent);
 
         let n_channel = 3;
         let height = 1024;
@@ -220,18 +226,38 @@ impl<B: Backend> LatentDecoder<B> {
             flattened[start..end].into_iter().map(|v| v.to_f64().unwrap().min(255.0).max(0.0).to_u8().unwrap()).collect()
         }).collect()
     }
+
+    pub fn encode_image(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
+        self.autoencoder.encode_image(x * self.scale_factor)
+    }
+
+    pub fn decode_latent(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
+        self.autoencoder.decode_latent(x * (1.0 / self.scale_factor) /* * (1.0 / 0.13025)*/)
+    }
 }
-        
 
 
 #[derive(Config, Debug)]
-pub struct DiffuserConfig {}
+pub struct DiffuserConfig {
+    adm_in_channels: usize, 
+    model_channels: usize, 
+    num_head_channels: usize, 
+    context_dim: usize, 
+}
 
 impl DiffuserConfig {
     pub fn init<B: Backend>(&self) -> Diffuser<B> {
         let n_steps = 1000;
         let alpha_cumulative_products = Tensor::zeros([1]).into(); //offset_cosine_schedule_cumprod::<B>(n_steps).into();
-        let diffusion = UNetConfig::new(2816, 4, 4, 320, 64, 2048).init();
+        //let diffusion = UNetConfig::new(2816, 4, 4, 320, 64, 2048).init();
+        let diffusion = UNetConfig::new(
+            self.adm_in_channels, 
+            4, 
+            4, 
+            self.model_channels, 
+            self.num_head_channels, 
+            self.context_dim
+        ).init();
 
         Diffuser {
             n_steps, 
@@ -329,12 +355,18 @@ pub struct Conditioning<B: Backend> {
 
 
 #[derive(Config, Debug)]
-pub struct EmbedderConfig {}
+pub struct EmbedderConfig {
+    clip_config: CLIPConfig, 
+    open_clip_config: CLIPConfig, 
+}
 
 impl EmbedderConfig {
     pub fn init<B: Backend>(&self) -> Embedder<B> {
-        let clip = CLIPConfig::new(49408, 768, 768, 12, 77, 12, true).init();
-        let open_clip = CLIPConfig::new(49408, 1024, 1024, 16, 77, 24, false).init();
+        /*let clip = CLIPConfig::new(49408, 768, 768, 12, 77, 12, true).init();
+        let open_clip = CLIPConfig::new(49408, 1024, 1024, 16, 77, 24, false).init();*/
+
+        let clip = self.clip_config.init();
+        let open_clip = self.open_clip_config.init();
 
         let clip_tokenizer = SimpleTokenizer::new().unwrap();
         let open_clip_tokenizer = OpenClipTokenizer::new().unwrap();

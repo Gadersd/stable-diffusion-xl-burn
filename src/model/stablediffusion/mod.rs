@@ -173,6 +173,13 @@ impl<B: Backend> StableDiffusion<B> {
 }*/
 
 
+pub struct RawImages {
+    pub buffer: Vec<Vec<u8>>, 
+    pub width: usize, 
+    pub height: usize, 
+}
+
+
 #[derive(Config, Debug)]
 pub struct LatentDecoderConfig {
     scale_factor: f64, 
@@ -182,7 +189,7 @@ impl LatentDecoderConfig {
     pub fn init<B: Backend>(&self) -> LatentDecoder<B> {
         let autoencoder = AutoencoderConfig::new().init();
         let scale_factor = self.scale_factor;
-        
+
         LatentDecoder {
             autoencoder, 
             scale_factor, 
@@ -198,13 +205,13 @@ pub struct LatentDecoder<B: Backend> {
 }
 
 impl<B: Backend> LatentDecoder<B> {
-    pub fn latent_to_image(&self, latent: Tensor<B, 4>) -> Vec<Vec<u8>> {
-        let [n_batch, _, _, _] = latent.dims();
+    pub fn latent_to_image(&self, latent: Tensor<B, 4>) -> RawImages {
+        let [n_batch, _, latent_height, latent_width] = latent.dims();
         let image = self.decode_latent(latent);
 
         let n_channel = 3;
-        let height = 1024;
-        let width = 1024;
+        let height = latent_height * 8;
+        let width = latent_width * 8;
         let num_elements_per_image = n_channel * height * width;
 
         // correct size and scale and reorder to 
@@ -219,12 +226,18 @@ impl<B: Backend> LatentDecoder<B> {
             into_data().
             value;
 
-        (0..n_batch).into_iter().map(|b| {
+        let buffer = (0..n_batch).into_iter().map(|b| {
             let start = b * num_elements_per_image;
             let end = start + num_elements_per_image;
 
             flattened[start..end].into_iter().map(|v| v.to_f64().unwrap().min(255.0).max(0.0).to_u8().unwrap()).collect()
-        }).collect()
+        }).collect();
+
+        RawImages {
+            buffer: buffer, 
+            width: width, 
+            height: height, 
+        }
     }
 
     pub fn encode_image(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
@@ -281,9 +294,10 @@ impl<B: Backend> Diffuser<B> {
         let step_size = self.n_steps / n_steps;
 
         let [n_batches, _, _] = conditioning.context.dims();
+        let [height, width] = conditioning.resolution;
 
         let gen_noise = || {
-            Tensor::random([n_batches, 4, 128, 128], Distribution::Normal(0.0, 1.0)).to_device(&device)
+            Tensor::random([n_batches, 4, height / 8, width / 8], Distribution::Normal(0.0, 1.0)).to_device(&device)
         };
 
         let sigma = 0.0; // Use deterministic diffusion
@@ -351,7 +365,53 @@ pub struct Conditioning<B: Backend> {
     pub context: Tensor<B, 3>, 
     pub unconditional_channel_context: Tensor<B, 1>, 
     pub channel_context: Tensor<B, 2>, 
+    pub resolution: [usize; 2], // (height, width)
 }
+
+/// These are the resolutions (height, width) Stable Diffusion XL was trained on.
+pub const RESOLUTIONS: [[i32; 2]; 40] = [
+    [512, 2048],
+    [512, 1984],
+    [512, 1920],
+    [512, 1856],
+    [576, 1792],
+    [576, 1728],
+    [576, 1664],
+    [640, 1600],
+    [640, 1536],
+    [704, 1472],
+    [704, 1408],
+    [704, 1344],
+    [768, 1344],
+    [768, 1280],
+    [832, 1216],
+    [832, 1152],
+    [896, 1152],
+    [896, 1088],
+    [960, 1088],
+    [960, 1024],
+    [1024, 1024],
+    [1024, 960],
+    [1088, 960],
+    [1088, 896],
+    [1152, 896],
+    [1152, 832],
+    [1216, 832],
+    [1280, 768],
+    [1344, 768],
+    [1408, 704],
+    [1472, 704],
+    [1536, 640],
+    [1600, 640],
+    [1664, 576],
+    [1728, 576],
+    [1792, 576],
+    [1856, 512],
+    [1920, 512],
+    [1984, 512],
+    [2048, 512]
+];
+
 
 
 #[derive(Config, Debug)]
@@ -389,15 +449,21 @@ pub struct Embedder<B: Backend> {
 }
 
 impl<B: Backend> Embedder<B> {
-    pub fn text_to_conditioning(&self, text: &str, size: Tensor<B, 2, Int>, crop: Tensor<B, 2, Int>, ar: Tensor<B, 2, Int>) -> Conditioning<B> {
-        let (unconditional_context, unconditional_channel_context) = self.unconditional_context(size.clone(), crop.clone(), ar.clone());
-        let (context, channel_context) = self.context(text, size, crop, ar);
+    pub fn text_to_conditioning(&self, text: &str, size: Tensor<B, 2, Int>, crop: Tensor<B, 2, Int>, ar: Tensor<B, 1, Int>) -> Conditioning<B> {
+        let [n_batch, _] = size.dims();
+        let ar_data = ar.clone().into_data();
+        let resolution = [ar_data.value[0].to_usize().unwrap(), ar_data.value[1].to_usize().unwrap()];
+        let batched_ar = ar.unsqueeze().repeat(0, n_batch);
+
+        let (unconditional_context, unconditional_channel_context) = self.unconditional_context(size.clone(), crop.clone(), batched_ar.clone());
+        let (context, channel_context) = self.context(text, size, crop, batched_ar);
 
         Conditioning {
             unconditional_context, 
             context, 
             unconditional_channel_context, 
             channel_context, 
+            resolution, 
         }
     }
 

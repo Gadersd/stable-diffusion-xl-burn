@@ -6,7 +6,7 @@ use stablediffusion::model::unet::{UNet, UNetConfig, load::load_unet};
 use stablediffusion::model::autoencoder::{Decoder, DecoderConfig, load::load_decoder};
 use stablediffusion::model::autoencoder::{Encoder, EncoderConfig, load::load_encoder};
 use stablediffusion::model::clip::{CLIP, CLIPConfig, load::load_clip_text_transformer};
-use stablediffusion::model::stablediffusion::{offset_cosine_schedule_cumprod, Embedder, EmbedderConfig, Diffuser, DiffuserConfig, LatentDecoder, LatentDecoderConfig, load::*};
+use stablediffusion::model::stablediffusion::{RESOLUTIONS, offset_cosine_schedule_cumprod, Embedder, EmbedderConfig, Diffuser, DiffuserConfig, LatentDecoder, LatentDecoderConfig, load::*};
 
 use burn::{
     config::Config, 
@@ -181,16 +181,18 @@ fn main() {
     //test_tiny_open_clip::<Backend>(&device);
     //test_open_clip::<Backend>(&device);
 
-    let text = "A beautiful photo of a seaside stone castle.";
+    let text = "A beautiful photo of a seaside bluff.";
 
     let conditioning = {
         println!("Loading embedder...");
         let embedder: Embedder<Backend> = load_embedder_model("embedder").unwrap();
         let embedder = embedder.to_device(&device);
 
-        let size = Tensor::from_ints([1024, 1024]).to_device(&device).unsqueeze();
+        let resolution = RESOLUTIONS[8];
+
+        let size = Tensor::from_ints(resolution).to_device(&device).unsqueeze();
         let crop = Tensor::from_ints([0, 0]).to_device(&device).unsqueeze();
-        let ar = Tensor::from_ints([1024, 1024]).to_device(&device).unsqueeze();
+        let ar = Tensor::from_ints(resolution).to_device(&device).unsqueeze();
 
         println!("Running embedder...");
         embedder.text_to_conditioning(text, size, crop, ar)
@@ -201,6 +203,7 @@ fn main() {
         context: switch_backend::<Backend, Backend_f16, 3>(conditioning.context, &device), 
         unconditional_channel_context: switch_backend::<Backend, Backend_f16, 1>(conditioning.unconditional_channel_context, &device), 
         channel_context: switch_backend::<Backend, Backend_f16, 2>(conditioning.channel_context, &device), 
+        resolution: conditioning.resolution, 
     };
 
     let latent = {
@@ -227,7 +230,7 @@ fn main() {
     };
 
     println!("Saving images...");
-    save_images(&images, "img", 1024, 1024).unwrap();
+    save_images(&images.buffer, "img", images.width as u32, images.height as u32).unwrap();
     println!("Done.");
 
     return;

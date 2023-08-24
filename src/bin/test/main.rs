@@ -19,7 +19,6 @@ use burn::{
     },
 };
 
-//use burn_ndarray::{NdArrayBackend, NdArrayDevice};
 use burn_tch::{TchBackend, TchDevice};
 
 use burn::record::{self, Recorder, BinFileRecorder, HalfPrecisionSettings};

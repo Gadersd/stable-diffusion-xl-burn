@@ -1,92 +1,147 @@
-use stablediffusion::{token::clip::SimpleTokenizer, /*model::stablediffusion::{*, load::load_stable_diffusion}*/};
+use std::env;
+use std::process;
+use std::error::Error;
+
+use stablediffusion::model::unet::{UNet, UNetConfig, load::load_unet};
+use stablediffusion::model::autoencoder::{Decoder, DecoderConfig, load::load_decoder};
+use stablediffusion::model::autoencoder::{Encoder, EncoderConfig, load::load_encoder};
+use stablediffusion::model::clip::{CLIP, CLIPConfig, load::load_clip_text_transformer};
+use stablediffusion::model::stablediffusion::{RESOLUTIONS, offset_cosine_schedule_cumprod, Embedder, EmbedderConfig, Diffuser, DiffuserConfig, LatentDecoder, LatentDecoderConfig, load::*};
 
 use burn::{
     config::Config, 
     module::{Module, Param},
     nn,
     tensor::{
+        self, 
         backend::Backend,
         Tensor,
     },
 };
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "torch-backend")] {
-        use burn_tch::{TchBackend, TchDevice};
-    } else if #[cfg(feature = "wgpu-backend")] {
-        use burn_wgpu::{WgpuBackend, WgpuDevice, AutoGraphicsApi};
-    }
+use burn_tch::{TchBackend, TchDevice};
+
+use burn::record::{self, Recorder, BinFileRecorder, HalfPrecisionSettings};
+
+fn load_embedder_model<B: Backend>(model_name: &str) -> Result<Embedder<B>, Box<dyn Error>> {
+    let config = EmbedderConfig::load(&format!("{}.cfg", model_name))?;
+    let record = BinFileRecorder::<HalfPrecisionSettings>::new()
+        .load(model_name.into())?;
+
+    Ok( config.init().load_record(record) )
 }
 
-use std::env;
-use std::io;
-use std::process;
+fn load_diffuser_model<B: Backend>(model_name: &str) -> Result<Diffuser<B>, Box<dyn Error>> {
+    let config = DiffuserConfig::load(&format!("{}.cfg", model_name))?;
+    let record = BinFileRecorder::<HalfPrecisionSettings>::new()
+        .load(model_name.into())?;
+    
+    Ok( config.init().load_record(record) )
+}
 
-use burn::record::{self, Recorder, BinFileRecorder, FullPrecisionSettings};
+fn load_latent_decoder_model<B: Backend>(model_name: &str) -> Result<LatentDecoder<B>, Box<dyn Error>> {
+    let config = LatentDecoderConfig::load(&format!("{}.cfg", model_name))?;
+    let record = BinFileRecorder::<HalfPrecisionSettings>::new()
+        .load(model_name.into())?;
 
-/*fn load_stable_diffusion_model_file<B: Backend>(filename: &str) -> Result<StableDiffusion<B>, record::RecorderError> {
-    BinFileRecorder::<FullPrecisionSettings>::new()
-    .load(filename.into())
-    .map(|record| StableDiffusionConfig::new().init().load_record(record))
-}*/
+    Ok( config.init().load_record(record) )
+}
+
+use stablediffusion::helper::to_float;
+
+fn arb_tensor<B: Backend, const D: usize>(dims: [usize; D]) -> Tensor<B, D> {
+    let prod = dims.iter().cloned().product();
+    to_float(Tensor::arange(0..prod)).sin().reshape(dims)
+}
+
+use stablediffusion::token::{Tokenizer, clip::SimpleTokenizer, open_clip::OpenClipTokenizer};
+
+use num_traits::cast::ToPrimitive;
+use stablediffusion::model::stablediffusion::Conditioning;
+use burn::tensor::ElementConversion;
+
+fn switch_backend<B1: Backend, B2: Backend, const D: usize>(x: Tensor<B1, D>, device: &B2::Device) -> Tensor<B2, D> {
+    let data = x.into_data();
+
+    let data = tensor::Data::new(data.value.into_iter().map(|v| v.elem()).collect(), data.shape);
+
+    Tensor::from_data_device(data, device)
+}
 
 fn main() {
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "torch-backend")] {
-            type Backend = TchBackend<f32>;
-            let device = TchDevice::Cuda(0);
-        } else if #[cfg(feature = "wgpu-backend")] {
-            type Backend = WgpuBackend<AutoGraphicsApi, f32, i32>;
-            let device = WgpuDevice::BestAvailable;
-        }
-    }
+    type Backend = TchBackend<f32>;
+    type Backend_f16 = TchBackend<tensor::f16>;
 
-    /*let args: Vec<String> = std::env::args().collect();
-    if args.len() != 7 {
-        eprintln!("Usage: {} <model_type(burn or dump)> <model_name> <unconditional_guidance_scale> <n_diffusion_steps> <prompt> <output_image_name>", args[0]);
+    let device = TchDevice::Cuda(0);
+
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() != 6 {
+        eprintln!("Usage: {} <model_name> <unconditional_guidance_scale> <n_diffusion_steps> <prompt> <output_image_name>", args[0]);
         process::exit(1);
     }
 
-    let model_type = &args[1];
-    let model_name = &args[2];
-    let unconditional_guidance_scale: f64 = args[3].parse().unwrap_or_else(|_| {
+    let model_name = &args[1];
+    let unconditional_guidance_scale: f64 = args[2].parse().unwrap_or_else(|_| {
         eprintln!("Error: Invalid unconditional guidance scale.");
         process::exit(1);
     });
-    let n_steps: usize = args[4].parse().unwrap_or_else(|_| {
+    let n_steps: usize = args[3].parse().unwrap_or_else(|_| {
         eprintln!("Error: Invalid number of diffusion steps.");
         process::exit(1);
     });
-    let prompt = &args[5];
-    let output_image_name = &args[6];
+    let prompt = &args[4];
+    let output_image_name = &args[5];
 
-    println!("Loading tokenizer...");
-    let tokenizer = SimpleTokenizer::new().unwrap();
-    println!("Loading model...");
-    let sd: StableDiffusion<Backend> = if model_type == "burn" {
-        load_stable_diffusion_model_file(model_name).unwrap_or_else(|err| {
-            eprintln!("Error loading model: {}", err);
-            process::exit(1);
-        })
-    } else {
-        load_stable_diffusion(model_name, &device).unwrap_or_else(|err| {
-            eprintln!("Error loading model dump: {}", err);
-            process::exit(1);
-        })
+    let conditioning = {
+        println!("Loading embedder...");
+        let embedder: Embedder<Backend> = load_embedder_model(&format!("{}/embedder", model_name)).unwrap();
+        let embedder = embedder.to_device(&device);
+
+        let resolution = RESOLUTIONS[8];
+
+        let size = Tensor::from_ints(resolution).to_device(&device).unsqueeze();
+        let crop = Tensor::from_ints([0, 0]).to_device(&device).unsqueeze();
+        let ar = Tensor::from_ints(resolution).to_device(&device).unsqueeze();
+
+        println!("Running embedder...");
+        embedder.text_to_conditioning(prompt, size, crop, ar)
     };
 
-    let sd = sd.to_device(&device);
+    let conditioning = Conditioning {
+        unconditional_context: switch_backend::<Backend, Backend_f16, 2>(conditioning.unconditional_context, &device), 
+        context: switch_backend::<Backend, Backend_f16, 3>(conditioning.context, &device), 
+        unconditional_channel_context: switch_backend::<Backend, Backend_f16, 1>(conditioning.unconditional_channel_context, &device), 
+        channel_context: switch_backend::<Backend, Backend_f16, 2>(conditioning.channel_context, &device), 
+        resolution: conditioning.resolution, 
+    };
 
-    let unconditional_context = sd.unconditional_context(&tokenizer);
-    let context = sd.context(&tokenizer, prompt).unsqueeze::<3>();//.repeat(0, 2); // generate 2 samples
+    let latent = {
+        println!("Loading diffuser...");
+        let diffuser: Diffuser<Backend_f16> = load_diffuser_model(&format!("{}/diffuser", model_name)).unwrap();
+        let diffuser = diffuser.to_device(&device);
 
-    println!("Sampling image...");
-    let images = sd.sample_image(context, unconditional_context, unconditional_guidance_scale, n_steps);
-    save_images(&images, output_image_name, 512, 512).unwrap_or_else(|err| {
-        eprintln!("Error saving image: {}", err);
-        process::exit(1);
-    });*/
+        println!("Running diffuser...");
+        diffuser.sample_latent(conditioning, unconditional_guidance_scale, n_steps)
+    };
+
+    let latent = switch_backend::<Backend_f16, Backend, 4>(latent, &device);
+
+    let images = {
+        println!("Loading latent decoder...");
+        let latent_decoder: LatentDecoder<Backend> = load_latent_decoder_model(&format!("{}/latent_decoder", model_name)).unwrap();
+        let latent_decoder = latent_decoder.to_device(&device);
+
+        println!("Running decoder...");
+        latent_decoder.latent_to_image(latent)
+    };
+
+    println!("Saving images...");
+    save_images(&images.buffer, output_image_name, images.width as u32, images.height as u32).unwrap();
+    println!("Done.");
+
+    return;
 }
+
 
 use image::{self, ImageResult, ColorType::Rgb8};
 

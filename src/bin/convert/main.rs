@@ -19,7 +19,6 @@ use burn::{
     },
 };
 
-//use burn_ndarray::{NdArrayBackend, NdArrayDevice};
 use burn_tch::{TchBackend, TchDevice};
 
 use burn::record::{self, Recorder, BinFileRecorder, HalfPrecisionSettings};
@@ -62,21 +61,46 @@ fn save_model_file<B: Backend, M: Module<B>>(model: M, name: &str) -> Result<(),
     )
 }
 
-fn main() {
-    //type Backend = NdArrayBackend<f32>;
-    //let device = NdArrayDevice::Cpu;
+use std::env;
 
+fn main() {
+    let params = match env::args().nth(1) {
+        Some(folder) => folder,
+        None => {
+        eprintln!("Error: no weight dump folder name provided.");
+        std::process::exit(1);
+        }
+    };
+    
     type Backend = TchBackend<f32>;
     let device = TchDevice::Cpu;
 
     println!("Saving embedder...");
-    convert_embedder_dump_to_model::<Backend>("params", "embedder", &device).unwrap();
+    match convert_embedder_dump_to_model::<Backend>(&params, "embedder", &device) {
+        Ok(_) => (),
+        Err(e) => {
+            eprintln!("Error converting embedder: {}", e);
+            std::process::exit(1);
+        }
+    }
 
     println!("Saving diffuser...");
-    convert_diffuser_dump_to_model::<Backend>("params", "diffuser", &device).unwrap();
+    match convert_diffuser_dump_to_model::<Backend>(&params, "diffuser", &device) {
+        Ok(_) => (),
+        Err(e) => {
+            eprintln!("Error converting diffuser: {}", e);
+            std::process::exit(1);
+        }
+    }
 
     println!("Saving latent decoder...");
-    convert_latent_decoder_dump_to_model::<Backend>("params", "latent_decoder", &device).unwrap();
+    match convert_latent_decoder_dump_to_model::<Backend>(&params, "latent_decoder", &device) {
+        Ok(_) => (),
+        Err(e) => {
+            eprintln!("Error converting latent decoder: {}", e);
+            std::process::exit(1);
+        }
+    }
 
     println!("Conversion completed.");
 }

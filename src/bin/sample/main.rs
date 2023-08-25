@@ -97,7 +97,7 @@ fn main() {
         let embedder: Embedder<Backend> = load_embedder_model(&format!("{}/embedder", model_name)).unwrap();
         let embedder = embedder.to_device(&device);
 
-        let resolution = RESOLUTIONS[8];
+        let resolution = [1024, 1024]; //RESOLUTIONS[8];
 
         let size = Tensor::from_ints(resolution).to_device(&device).unsqueeze();
         let crop = Tensor::from_ints([0, 0]).to_device(&device).unsqueeze();

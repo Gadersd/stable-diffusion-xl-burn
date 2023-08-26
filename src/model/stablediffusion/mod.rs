@@ -1,25 +1,17 @@
 pub mod load;
 
 use burn::{
-    config::Config, 
+    config::Config,
     module::{Module, Param},
-    tensor::{
-        backend::Backend,
-        Tensor,
-        Int, 
-        Float, 
-        BasicOps, 
-        Data, 
-        Distribution, 
-    },
+    tensor::{backend::Backend, BasicOps, Data, Distribution, Float, Int, Tensor},
 };
 
 use num_traits::ToPrimitive;
 
 use super::autoencoder::{Autoencoder, AutoencoderConfig};
-use super::unet::{UNet, UNetConfig, conditioning_embedding};
-use super::clip::{CLIP, CLIPConfig};
-use crate::token::{Tokenizer, clip::SimpleTokenizer, open_clip::OpenClipTokenizer};
+use super::clip::{CLIPConfig, CLIP};
+use super::unet::{conditioning_embedding, UNet, UNetConfig};
+use crate::token::{clip::SimpleTokenizer, open_clip::OpenClipTokenizer, Tokenizer};
 
 /*#[derive(Config)]
 pub struct StableDiffusionConfig {
@@ -36,22 +28,22 @@ impl StableDiffusionConfig {
         let clip = CLIPConfig::new(49408, 768, 12, 77, 12, false).init();
 
         StableDiffusion {
-            n_steps, 
-            alpha_cumulative_products, 
-            autoencoder, 
-            diffusion, 
-            clip, 
+            n_steps,
+            alpha_cumulative_products,
+            autoencoder,
+            diffusion,
+            clip,
         }
     }
 }
 
 #[derive(Module, Debug)]
 pub struct StableDiffusion<B: Backend> {
-    n_steps: usize, 
-    alpha_cumulative_products: Param<Tensor<B, 1>>, 
-    autoencoder: Autoencoder<B>, 
-    diffusion: UNet<B>, 
-    clip: CLIP<B>, 
+    n_steps: usize,
+    alpha_cumulative_products: Param<Tensor<B, 1>>,
+    autoencoder: Autoencoder<B>,
+    diffusion: UNet<B>,
+    clip: CLIP<B>,
 }
 
 impl<B: Backend> StableDiffusion<B> {
@@ -71,7 +63,7 @@ impl<B: Backend> StableDiffusion<B> {
         let width = 512;
         let num_elements_per_image = n_channel * height * width;
 
-        // correct size and scale and reorder to 
+        // correct size and scale and reorder to
         let image = (image + 1.0) / 2.0;
         let image = image
             .reshape([n_batch, n_channel, height, width])
@@ -134,22 +126,22 @@ impl<B: Backend> StableDiffusion<B> {
         //let latent = latent.repeat(0, 2);
 
         let unconditional_latent = self.diffusion.forward(
-            latent.clone(), 
-            timestep.clone(), 
-            unconditional_context.unsqueeze().repeat(0, n_batch), 
-            Tensor::zeros([1, 1]), 
+            latent.clone(),
+            timestep.clone(),
+            unconditional_context.unsqueeze().repeat(0, n_batch),
+            Tensor::zeros([1, 1]),
         );
 
         let conditional_latent = self.diffusion.forward(
-            latent, 
-            timestep, 
-            context, 
-            Tensor::zeros([1, 1]), 
+            latent,
+            timestep,
+            context,
+            Tensor::zeros([1, 1]),
         );
 
         /*let latent = self.diffusion.forward(
-            latent.repeat(0, 2), 
-            timestep.repeat(0, 2), 
+            latent.repeat(0, 2),
+            timestep.repeat(0, 2),
             Tensor::cat(vec![unconditional_context.unsqueeze::<3>(), context], 0)
         );
 
@@ -172,17 +164,15 @@ impl<B: Backend> StableDiffusion<B> {
     }
 }*/
 
-
 pub struct RawImages {
-    pub buffer: Vec<Vec<u8>>, 
-    pub width: usize, 
-    pub height: usize, 
+    pub buffer: Vec<Vec<u8>>,
+    pub width: usize,
+    pub height: usize,
 }
-
 
 #[derive(Config, Debug)]
 pub struct LatentDecoderConfig {
-    scale_factor: f64, 
+    scale_factor: f64,
 }
 
 impl LatentDecoderConfig {
@@ -191,17 +181,16 @@ impl LatentDecoderConfig {
         let scale_factor = self.scale_factor;
 
         LatentDecoder {
-            autoencoder, 
-            scale_factor, 
+            autoencoder,
+            scale_factor,
         }
     }
 }
 
-
 #[derive(Module, Debug)]
 pub struct LatentDecoder<B: Backend> {
-    autoencoder: Autoencoder<B>, 
-    scale_factor: f64, 
+    autoencoder: Autoencoder<B>,
+    scale_factor: f64,
 }
 
 impl<B: Backend> LatentDecoder<B> {
@@ -214,7 +203,7 @@ impl<B: Backend> LatentDecoder<B> {
         let width = latent_width * 8;
         let num_elements_per_image = n_channel * height * width;
 
-        // correct size and scale and reorder to 
+        // correct size and scale and reorder to
         let image = (image + 1.0) / 2.0;
         let image = image
             .reshape([n_batch, n_channel, height, width])
@@ -222,21 +211,25 @@ impl<B: Backend> LatentDecoder<B> {
             .swap_dims(2, 3)
             .mul_scalar(255.0);
 
-        let flattened: Vec<_> = image.
-            into_data().
-            value;
+        let flattened: Vec<_> = image.into_data().value;
 
-        let buffer = (0..n_batch).into_iter().map(|b| {
-            let start = b * num_elements_per_image;
-            let end = start + num_elements_per_image;
+        let buffer = (0..n_batch)
+            .into_iter()
+            .map(|b| {
+                let start = b * num_elements_per_image;
+                let end = start + num_elements_per_image;
 
-            flattened[start..end].into_iter().map(|v| v.to_f64().unwrap().min(255.0).max(0.0).to_u8().unwrap()).collect()
-        }).collect();
+                flattened[start..end]
+                    .into_iter()
+                    .map(|v| v.to_f64().unwrap().min(255.0).max(0.0).to_u8().unwrap())
+                    .collect()
+            })
+            .collect();
 
         RawImages {
-            buffer: buffer, 
-            width: width, 
-            height: height, 
+            buffer: buffer,
+            width: width,
+            height: height,
         }
     }
 
@@ -245,50 +238,56 @@ impl<B: Backend> LatentDecoder<B> {
     }
 
     pub fn decode_latent(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
-        self.autoencoder.decode_latent(x * (1.0 / self.scale_factor) /* * (1.0 / 0.13025)*/)
+        self.autoencoder
+            .decode_latent(x * (1.0 / self.scale_factor) /* * (1.0 / 0.13025)*/)
     }
 }
 
-
 #[derive(Config, Debug)]
 pub struct DiffuserConfig {
-    adm_in_channels: usize, 
-    model_channels: usize, 
-    num_head_channels: usize, 
-    context_dim: usize, 
+    adm_in_channels: usize,
+    model_channels: usize,
+    num_head_channels: usize,
+    context_dim: usize,
 }
 
 impl DiffuserConfig {
     pub fn init<B: Backend>(&self) -> Diffuser<B> {
         let n_steps = 1000;
         let alpha_cumulative_products = Tensor::zeros([1]).into(); //offset_cosine_schedule_cumprod::<B>(n_steps).into();
-        //let diffusion = UNetConfig::new(2816, 4, 4, 320, 64, 2048).init();
+                                                                   //let diffusion = UNetConfig::new(2816, 4, 4, 320, 64, 2048).init();
         let diffusion = UNetConfig::new(
-            self.adm_in_channels, 
-            4, 
-            4, 
-            self.model_channels, 
-            self.num_head_channels, 
-            self.context_dim
-        ).init();
+            self.adm_in_channels,
+            4,
+            4,
+            self.model_channels,
+            self.num_head_channels,
+            self.context_dim,
+        )
+        .init();
 
         Diffuser {
-            n_steps, 
-            alpha_cumulative_products, 
-            diffusion, 
+            n_steps,
+            alpha_cumulative_products,
+            diffusion,
         }
     }
 }
 
 #[derive(Module, Debug)]
 pub struct Diffuser<B: Backend> {
-    n_steps: usize, 
-    pub alpha_cumulative_products: Param<Tensor<B, 1>>, 
-    pub diffusion: UNet<B>, 
+    n_steps: usize,
+    pub alpha_cumulative_products: Param<Tensor<B, 1>>,
+    pub diffusion: UNet<B>,
 }
 
 impl<B: Backend> Diffuser<B> {
-    pub fn sample_latent(&self, conditioning: Conditioning<B>, unconditional_guidance_scale: f64, n_steps: usize) -> Tensor<B, 4> {
+    pub fn sample_latent(
+        &self,
+        conditioning: Conditioning<B>,
+        unconditional_guidance_scale: f64,
+        n_steps: usize,
+    ) -> Tensor<B, 4> {
         let device = conditioning.context.device();
 
         let step_size = self.n_steps / n_steps;
@@ -297,7 +296,11 @@ impl<B: Backend> Diffuser<B> {
         let [height, width] = conditioning.resolution;
 
         let gen_noise = || {
-            Tensor::random([n_batches, 4, height / 8, width / 8], Distribution::Normal(0.0, 1.0)).to_device(&device)
+            Tensor::random(
+                [n_batches, 4, height / 8, width / 8],
+                Distribution::Normal(0.0, 1.0),
+            )
+            .to_device(&device)
         };
 
         let sigma = 0.0; // Use deterministic diffusion
@@ -305,10 +308,21 @@ impl<B: Backend> Diffuser<B> {
         let mut latent = gen_noise();
 
         for t in (0..self.n_steps).rev().step_by(step_size) {
-            let current_alpha: f64 = self.alpha_cumulative_products.val().slice([t..t + 1]).into_scalar().to_f64().unwrap();
+            let current_alpha: f64 = self
+                .alpha_cumulative_products
+                .val()
+                .slice([t..t + 1])
+                .into_scalar()
+                .to_f64()
+                .unwrap();
             let prev_alpha: f64 = if t >= step_size {
                 let i = t - step_size;
-                self.alpha_cumulative_products.val().slice([i..i + 1]).into_scalar().to_f64().unwrap()
+                self.alpha_cumulative_products
+                    .val()
+                    .slice([i..i + 1])
+                    .into_scalar()
+                    .to_f64()
+                    .unwrap()
             } else {
                 1.0
             };
@@ -316,7 +330,12 @@ impl<B: Backend> Diffuser<B> {
             let sqrt_noise = (1.0 - current_alpha).sqrt();
 
             let timestep = Tensor::from_ints([t as i32]).to_device(&device);
-            let pred_noise = self.forward_diffuser(latent.clone(), timestep, conditioning.clone(), unconditional_guidance_scale);
+            let pred_noise = self.forward_diffuser(
+                latent.clone(),
+                timestep,
+                conditioning.clone(),
+                unconditional_guidance_scale,
+            );
             let predx0 = (latent - pred_noise.clone() * sqrt_noise) / current_alpha.sqrt();
             let dir_latent = pred_noise * (1.0 - prev_alpha - sigma * sigma).sqrt();
 
@@ -327,44 +346,56 @@ impl<B: Backend> Diffuser<B> {
         latent
     }
 
-    fn forward_diffuser(&self, latent: Tensor<B, 4>, timestep: Tensor<B, 1, Int>, conditioning: Conditioning<B>, unconditional_guidance_scale: f64) -> Tensor<B, 4> {
+    fn forward_diffuser(
+        &self,
+        latent: Tensor<B, 4>,
+        timestep: Tensor<B, 1, Int>,
+        conditioning: Conditioning<B>,
+        unconditional_guidance_scale: f64,
+    ) -> Tensor<B, 4> {
         let [n_batch, _, _, _] = latent.dims();
         //let latent = latent.repeat(0, 2);
 
         let unconditional_latent = self.diffusion.forward(
-            latent.clone(), 
-            timestep.clone(), 
-            conditioning.unconditional_context.unsqueeze().repeat(0, n_batch), 
-            conditioning.unconditional_channel_context.unsqueeze().repeat(0, n_batch), 
+            latent.clone(),
+            timestep.clone(),
+            conditioning
+                .unconditional_context
+                .unsqueeze()
+                .repeat(0, n_batch),
+            conditioning
+                .unconditional_channel_context
+                .unsqueeze()
+                .repeat(0, n_batch),
         );
 
         let conditional_latent = self.diffusion.forward(
-            latent, 
-            timestep, 
-            conditioning.context, 
-            conditioning.channel_context, 
+            latent,
+            timestep,
+            conditioning.context,
+            conditioning.channel_context,
         );
 
         /*let latent = self.diffusion.forward(
-            latent.repeat(0, 2), 
-            timestep.repeat(0, 2), 
+            latent.repeat(0, 2),
+            timestep.repeat(0, 2),
             Tensor::cat(vec![unconditional_context.unsqueeze::<3>(), context], 0)
         );
 
         let unconditional_latent = latent.clone().slice([0..n_batch]);
         let conditional_latent = latent.slice([n_batch..2 * n_batch]);*/
 
-        unconditional_latent.clone() + (conditional_latent - unconditional_latent) * unconditional_guidance_scale
+        unconditional_latent.clone()
+            + (conditional_latent - unconditional_latent) * unconditional_guidance_scale
     }
 }
 
-
 #[derive(Clone, Debug)]
 pub struct Conditioning<B: Backend> {
-    pub unconditional_context: Tensor<B, 2>, 
-    pub context: Tensor<B, 3>, 
-    pub unconditional_channel_context: Tensor<B, 1>, 
-    pub channel_context: Tensor<B, 2>, 
+    pub unconditional_context: Tensor<B, 2>,
+    pub context: Tensor<B, 3>,
+    pub unconditional_channel_context: Tensor<B, 1>,
+    pub channel_context: Tensor<B, 2>,
     pub resolution: [usize; 2], // (height, width)
 }
 
@@ -409,15 +440,13 @@ pub const RESOLUTIONS: [[i32; 2]; 40] = [
     [1856, 512],
     [1920, 512],
     [1984, 512],
-    [2048, 512]
+    [2048, 512],
 ];
-
-
 
 #[derive(Config, Debug)]
 pub struct EmbedderConfig {
-    clip_config: CLIPConfig, 
-    open_clip_config: CLIPConfig, 
+    clip_config: CLIPConfig,
+    open_clip_config: CLIPConfig,
 }
 
 impl EmbedderConfig {
@@ -432,64 +461,90 @@ impl EmbedderConfig {
         let open_clip_tokenizer = OpenClipTokenizer::new().unwrap();
 
         Embedder {
-            clip, 
-            open_clip, 
-            clip_tokenizer, 
-            open_clip_tokenizer, 
+            clip,
+            open_clip,
+            clip_tokenizer,
+            open_clip_tokenizer,
         }
     }
 }
 
 #[derive(Module, Debug)]
 pub struct Embedder<B: Backend> {
-    clip: CLIP<B>, 
-    open_clip: CLIP<B>, 
-    clip_tokenizer: SimpleTokenizer, 
-    open_clip_tokenizer: OpenClipTokenizer, 
+    clip: CLIP<B>,
+    open_clip: CLIP<B>,
+    clip_tokenizer: SimpleTokenizer,
+    open_clip_tokenizer: OpenClipTokenizer,
 }
 
 impl<B: Backend> Embedder<B> {
-    pub fn text_to_conditioning(&self, text: &str, size: Tensor<B, 2, Int>, crop: Tensor<B, 2, Int>, ar: Tensor<B, 1, Int>) -> Conditioning<B> {
+    pub fn text_to_conditioning(
+        &self,
+        text: &str,
+        size: Tensor<B, 2, Int>,
+        crop: Tensor<B, 2, Int>,
+        ar: Tensor<B, 1, Int>,
+    ) -> Conditioning<B> {
         let [n_batch, _] = size.dims();
         let ar_data = ar.clone().into_data();
-        let resolution = [ar_data.value[0].to_usize().unwrap(), ar_data.value[1].to_usize().unwrap()];
+        let resolution = [
+            ar_data.value[0].to_usize().unwrap(),
+            ar_data.value[1].to_usize().unwrap(),
+        ];
         let batched_ar = ar.unsqueeze().repeat(0, n_batch);
 
-        let (unconditional_context, unconditional_channel_context) = self.unconditional_context(size.clone(), crop.clone(), batched_ar.clone());
+        let (unconditional_context, unconditional_channel_context) =
+            self.unconditional_context(size.clone(), crop.clone(), batched_ar.clone());
         let (context, channel_context) = self.context(text, size, crop, batched_ar);
 
         Conditioning {
-            unconditional_context, 
-            context, 
-            unconditional_channel_context, 
-            channel_context, 
-            resolution, 
+            unconditional_context,
+            context,
+            unconditional_channel_context,
+            channel_context,
+            resolution,
         }
     }
 
-    fn unconditional_context(&self, size: Tensor<B, 2, Int>, crop: Tensor<B, 2, Int>, ar: Tensor<B, 2, Int>) -> (Tensor<B, 2>, Tensor<B, 1>) {
+    fn unconditional_context(
+        &self,
+        size: Tensor<B, 2, Int>,
+        crop: Tensor<B, 2, Int>,
+        ar: Tensor<B, 2, Int>,
+    ) -> (Tensor<B, 2>, Tensor<B, 1>) {
         let clip_context = text_to_context_clip("", &self.clip, &self.clip_tokenizer);
-        let (open_clip_context, pooled_text_embed) = text_to_context_open_clip("", &self.open_clip, &self.open_clip_tokenizer);
+        let (open_clip_context, pooled_text_embed) =
+            text_to_context_open_clip("", &self.open_clip, &self.open_clip_tokenizer);
 
         (
-            Tensor::cat(vec![clip_context, open_clip_context], 2).squeeze(0), 
-            conditioning_embedding(pooled_text_embed, 256, size, crop, ar).squeeze(0), 
+            Tensor::cat(vec![clip_context, open_clip_context], 2).squeeze(0),
+            conditioning_embedding(pooled_text_embed, 256, size, crop, ar).squeeze(0),
         )
     }
 
-    fn context(&self, text: &str, size: Tensor<B, 2, Int>, crop: Tensor<B, 2, Int>, ar: Tensor<B, 2, Int>) -> (Tensor<B, 3>, Tensor<B, 2>) {
+    fn context(
+        &self,
+        text: &str,
+        size: Tensor<B, 2, Int>,
+        crop: Tensor<B, 2, Int>,
+        ar: Tensor<B, 2, Int>,
+    ) -> (Tensor<B, 3>, Tensor<B, 2>) {
         let clip_context = text_to_context_clip(text, &self.clip, &self.clip_tokenizer);
-        let (open_clip_context, pooled_text_embed) = text_to_context_open_clip(text, &self.open_clip, &self.open_clip_tokenizer);
+        let (open_clip_context, pooled_text_embed) =
+            text_to_context_open_clip(text, &self.open_clip, &self.open_clip_tokenizer);
 
         (
-            Tensor::cat(vec![clip_context, open_clip_context], 2), 
-            conditioning_embedding(pooled_text_embed, 256, size, crop, ar), 
+            Tensor::cat(vec![clip_context, open_clip_context], 2),
+            conditioning_embedding(pooled_text_embed, 256, size, crop, ar),
         )
     }
 }
 
-
-pub fn text_to_context_clip<B: Backend, T: Tokenizer>(text: &str, clip: &CLIP<B>, tokenizer: &T) -> Tensor<B, 3> {
+pub fn text_to_context_clip<B: Backend, T: Tokenizer>(
+    text: &str,
+    clip: &CLIP<B>,
+    tokenizer: &T,
+) -> Tensor<B, 3> {
     let device = &clip.devices()[0];
 
     let tokens = tokenize_text(text, tokenizer, clip.max_sequence_length(), device);
@@ -498,7 +553,11 @@ pub fn text_to_context_clip<B: Backend, T: Tokenizer>(text: &str, clip: &CLIP<B>
     clip.forward_hidden(tokens, n_layers - 1) // penultimate layer
 }
 
-pub fn text_to_context_open_clip<B: Backend, T: Tokenizer>(text: &str, clip: &CLIP<B>, tokenizer: &T) -> (Tensor<B, 3>, Tensor<B, 2>) {
+pub fn text_to_context_open_clip<B: Backend, T: Tokenizer>(
+    text: &str,
+    clip: &CLIP<B>,
+    tokenizer: &T,
+) -> (Tensor<B, 3>, Tensor<B, 2>) {
     let device = &clip.devices()[0];
 
     let tokens = tokenize_text(text, tokenizer, clip.max_sequence_length(), device);
@@ -507,7 +566,12 @@ pub fn text_to_context_open_clip<B: Backend, T: Tokenizer>(text: &str, clip: &CL
     clip.forward_hidden_pooled(tokens, n_layers - 1) // penultimate layer
 }
 
-pub fn tokenize_text<B: Backend, T: Tokenizer>(text: &str, tokenizer: &T, seq_len: usize, device: &B::Device) -> Tensor<B, 2, Int> {
+pub fn tokenize_text<B: Backend, T: Tokenizer>(
+    text: &str,
+    tokenizer: &T,
+    seq_len: usize,
+    device: &B::Device,
+) -> Tensor<B, 2, Int> {
     let mut tokenized: Vec<_> = tokenizer
         .encode(text, true, true)
         .into_iter()
@@ -516,28 +580,10 @@ pub fn tokenize_text<B: Backend, T: Tokenizer>(text: &str, tokenizer: &T, seq_le
 
     tokenized.resize(seq_len, tokenizer.padding_token() as i32);
 
-    Tensor::from_ints(&tokenized[..]).to_device(device).unsqueeze()
+    Tensor::from_ints(&tokenized[..])
+        .to_device(device)
+        .unsqueeze()
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 use crate::helper::to_float;
 use std::f64::consts::PI;
@@ -556,10 +602,14 @@ fn offset_cosine_schedule<B: Backend>(n_steps: usize, device: &B::Device) -> Ten
 
     let times = Tensor::arange_device(1..n_steps + 1, device);
 
-    let diffusion_angles = to_float(times) * ( (end_angle - start_angle) / n_steps as f64) + start_angle;
+    let diffusion_angles =
+        to_float(times) * ((end_angle - start_angle) / n_steps as f64) + start_angle;
     diffusion_angles.cos()
 }
 
-pub fn offset_cosine_schedule_cumprod<B: Backend>(n_steps: usize, device: &B::Device) -> Tensor<B, 1> {
+pub fn offset_cosine_schedule_cumprod<B: Backend>(
+    n_steps: usize,
+    device: &B::Device,
+) -> Tensor<B, 1> {
     offset_cosine_schedule::<B>(n_steps, device).powf(2.0)
 }

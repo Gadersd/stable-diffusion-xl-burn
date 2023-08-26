@@ -4,20 +4,20 @@ use crate::model::load::*;
 use std::error::Error;
 
 use burn::{
-    config::Config, 
+    config::Config,
     module::{Module, Param},
     nn,
-    tensor::{
-        backend::Backend,
-        Tensor,
-    },
+    tensor::{backend::Backend, Tensor},
 };
 
 use super::*;
 use crate::model::groupnorm::load::load_group_norm;
 use crate::model::layernorm::load::load_layer_norm;
 
-pub fn load_res_block<B: Backend>(path: &str, device: &B::Device) -> Result<ResBlock<B>, Box<dyn Error>> {
+pub fn load_res_block<B: Backend>(
+    path: &str,
+    device: &B::Device,
+) -> Result<ResBlock<B>, Box<dyn Error>> {
     let norm_in = load_group_norm::<B>(&format!("{}/{}", path, "norm_in"), device)?;
     let conv_in = load_conv2d::<B>(&format!("{}/{}", path, "conv_in"), device)?;
     let lin_embed = load_linear::<B>(&format!("{}/{}", path, "lin_embed"), device)?;
@@ -27,12 +27,12 @@ pub fn load_res_block<B: Backend>(path: &str, device: &B::Device) -> Result<ResB
 
     let res_block = ResBlock {
         norm_in: norm_in,
-        silu_in: SILU::new(), 
+        silu_in: SILU::new(),
         conv_in: conv_in,
-        silu_embed: SILU::new(), 
+        silu_embed: SILU::new(),
         lin_embed: lin_embed,
         norm_out: norm_out,
-        silu_out: SILU::new(), 
+        silu_out: SILU::new(),
         conv_out: conv_out,
         skip_connection: skip_connection,
     };
@@ -40,7 +40,10 @@ pub fn load_res_block<B: Backend>(path: &str, device: &B::Device) -> Result<ResB
     Ok(res_block)
 }
 
-pub fn load_multi_head_attention<B: Backend>(path: &str, device: &B::Device) -> Result<MultiHeadAttention<B>, Box<dyn Error>> {
+pub fn load_multi_head_attention<B: Backend>(
+    path: &str,
+    device: &B::Device,
+) -> Result<MultiHeadAttention<B>, Box<dyn Error>> {
     let n_head = load_usize::<B>("n_head", path, device)?;
     let query = load_linear::<B>(&format!("{}/{}", path, "query"), device)?;
     let key = load_linear::<B>(&format!("{}/{}", path, "key"), device)?;
@@ -54,10 +57,9 @@ pub fn load_multi_head_attention<B: Backend>(path: &str, device: &B::Device) -> 
         value: value,
         out: out,
     };
-    
+
     Ok(multi_head_attention)
 }
-
 
 pub fn load_geglu<B: Backend>(path: &str, device: &B::Device) -> Result<GEGLU<B>, Box<dyn Error>> {
     let proj = load_linear::<B>(&format!("{}/{}", path, "proj"), device)?;
@@ -66,10 +68,9 @@ pub fn load_geglu<B: Backend>(path: &str, device: &B::Device) -> Result<GEGLU<B>
         proj: proj,
         gelu: GELU::new(), // Assuming GELU::new() initializes a new GELU struct
     };
-    
+
     Ok(geglue)
 }
-
 
 pub fn load_mlp<B: Backend>(path: &str, device: &B::Device) -> Result<MLP<B>, Box<dyn Error>> {
     let geglu = load_geglu::<B>(&format!("{}/{}", path, "geglu"), device)?;
@@ -79,12 +80,14 @@ pub fn load_mlp<B: Backend>(path: &str, device: &B::Device) -> Result<MLP<B>, Bo
         geglu: geglu,
         lin: lin,
     };
-    
+
     Ok(mlp)
 }
 
-
-pub fn load_transformer_block<B: Backend>(path: &str, device: &B::Device) -> Result<TransformerBlock<B>, Box<dyn Error>> {
+pub fn load_transformer_block<B: Backend>(
+    path: &str,
+    device: &B::Device,
+) -> Result<TransformerBlock<B>, Box<dyn Error>> {
     let norm1 = load_layer_norm::<B>(&format!("{}/{}", path, "norm1"), device)?;
     let attn1 = load_multi_head_attention::<B>(&format!("{}/{}", path, "attn1"), device)?;
     let norm2 = load_layer_norm::<B>(&format!("{}/{}", path, "norm2"), device)?;
@@ -100,20 +103,23 @@ pub fn load_transformer_block<B: Backend>(path: &str, device: &B::Device) -> Res
         norm3: norm3,
         mlp: mlp,
     };
-    
+
     Ok(transformer_block)
 }
 
-
-pub fn load_spatial_transformer<B: Backend>(path: &str, device: &B::Device) -> Result<SpatialTransformer<B>, Box<dyn Error>> {
+pub fn load_spatial_transformer<B: Backend>(
+    path: &str,
+    device: &B::Device,
+) -> Result<SpatialTransformer<B>, Box<dyn Error>> {
     let norm = load_group_norm::<B>(&format!("{}/{}", path, "norm"), device)?;
     //let proj_in = load_conv2d::<B>(&format!("{}/{}", path, "proj_in"), device)?;
     let proj_in = load_linear::<B>(&format!("{}/{}", path, "proj_in"), device)?;
 
     let n_blocks = load_usize::<B>("n_blocks", path, device)?;
-    let blocks = (0..n_blocks).into_iter().map(|i| {
-        load_transformer_block::<B>(&format!("{}/transformer_{}", path, i), device)
-    }).collect::<Result<_, _>>()?;
+    let blocks = (0..n_blocks)
+        .into_iter()
+        .map(|i| load_transformer_block::<B>(&format!("{}/transformer_{}", path, i), device))
+        .collect::<Result<_, _>>()?;
 
     //let proj_out = load_conv2d::<B>(&format!("{}/{}", path, "proj_out"), device)?;
     let proj_out = load_linear::<B>(&format!("{}/{}", path, "proj_out"), device)?;
@@ -124,28 +130,35 @@ pub fn load_spatial_transformer<B: Backend>(path: &str, device: &B::Device) -> R
         blocks: blocks,
         proj_out: proj_out,
     };
-    
+
     Ok(spatial_transformer)
 }
 
-
-pub fn load_upsample<B: Backend>(path: &str, device: &B::Device) -> Result<Upsample<B>, Box<dyn Error>> {
+pub fn load_upsample<B: Backend>(
+    path: &str,
+    device: &B::Device,
+) -> Result<Upsample<B>, Box<dyn Error>> {
     let conv = load_conv2d::<B>(&format!("{}/{}", path, "conv"), device)?;
 
-    let upsample = Upsample {
-        conv: conv,
-    };
-    
+    let upsample = Upsample { conv: conv };
+
     Ok(upsample)
 }
 
-pub fn load_downsample<B: Backend>(path: &str, device: &B::Device) -> Result<Downsample<B>, Box<dyn Error>> {
+pub fn load_downsample<B: Backend>(
+    path: &str,
+    device: &B::Device,
+) -> Result<Downsample<B>, Box<dyn Error>> {
     load_conv2d(path, device)
 }
 
-pub fn load_res_transformer_res<B: Backend>(path: &str, device: &B::Device) -> Result<ResTransformerRes<B>, Box<dyn Error>> {
+pub fn load_res_transformer_res<B: Backend>(
+    path: &str,
+    device: &B::Device,
+) -> Result<ResTransformerRes<B>, Box<dyn Error>> {
     let res1 = load_res_block::<B>(&format!("{}/{}", path, "res1"), device)?; // Assuming load_res_block function
-    let transformer = load_spatial_transformer::<B>(&format!("{}/{}", path, "transformer"), device)?;
+    let transformer =
+        load_spatial_transformer::<B>(&format!("{}/{}", path, "transformer"), device)?;
     let res2 = load_res_block::<B>(&format!("{}/{}", path, "res2"), device)?;
 
     let res_transformer_res = ResTransformerRes {
@@ -153,13 +166,17 @@ pub fn load_res_transformer_res<B: Backend>(path: &str, device: &B::Device) -> R
         transformer: transformer,
         res2: res2,
     };
-    
+
     Ok(res_transformer_res)
 }
 
-pub fn load_res_transformer_upsample<B: Backend>(path: &str, device: &B::Device) -> Result<ResTransformerUpsample<B>, Box<dyn Error>> {
+pub fn load_res_transformer_upsample<B: Backend>(
+    path: &str,
+    device: &B::Device,
+) -> Result<ResTransformerUpsample<B>, Box<dyn Error>> {
     let res = load_res_block::<B>(&format!("{}/{}", path, "res"), device)?;
-    let transformer = load_spatial_transformer::<B>(&format!("{}/{}", path, "transformer"), device)?;
+    let transformer =
+        load_spatial_transformer::<B>(&format!("{}/{}", path, "transformer"), device)?;
     let upsample = load_upsample::<B>(&format!("{}/{}", path, "upsample"), device)?;
 
     let res_transformer_upsample = ResTransformerUpsample {
@@ -167,12 +184,14 @@ pub fn load_res_transformer_upsample<B: Backend>(path: &str, device: &B::Device)
         transformer: transformer,
         upsample: upsample,
     };
-    
+
     Ok(res_transformer_upsample)
 }
 
-
-pub fn load_res_upsample<B: Backend>(path: &str, device: &B::Device) -> Result<ResUpSample<B>, Box<dyn Error>> {
+pub fn load_res_upsample<B: Backend>(
+    path: &str,
+    device: &B::Device,
+) -> Result<ResUpSample<B>, Box<dyn Error>> {
     let res = load_res_block::<B>(&format!("{}/{}", path, "res"), device)?;
     let upsample = load_upsample::<B>(&format!("{}/{}", path, "upsample"), device)?;
 
@@ -180,23 +199,25 @@ pub fn load_res_upsample<B: Backend>(path: &str, device: &B::Device) -> Result<R
         res: res,
         upsample: upsample,
     };
-    
+
     Ok(res_upsample)
 }
 
-
-pub fn load_res_transformer<B: Backend>(path: &str, device: &B::Device) -> Result<ResTransformer<B>, Box<dyn Error>> {
+pub fn load_res_transformer<B: Backend>(
+    path: &str,
+    device: &B::Device,
+) -> Result<ResTransformer<B>, Box<dyn Error>> {
     let res = load_res_block::<B>(&format!("{}/{}", path, "res"), device)?;
-    let transformer = load_spatial_transformer::<B>(&format!("{}/{}", path, "transformer"), device)?;
+    let transformer =
+        load_spatial_transformer::<B>(&format!("{}/{}", path, "transformer"), device)?;
 
     let res_transformer = ResTransformer {
         res: res,
         transformer: transformer,
     };
-    
+
     Ok(res_transformer)
 }
-
 
 /*pub fn load_unet_input_blocks<B: Backend>(path: &str, device: &B::Device) -> Result<UNetInputBlocks<B>, Box<dyn Error>> {
     let conv = load_conv2d::<B>(&format!("{}/{}", path, "conv"), device)?;
@@ -226,7 +247,7 @@ pub fn load_res_transformer<B: Backend>(path: &str, device: &B::Device) -> Resul
         r1: r1,
         r2: r2,
     };
-    
+
     Ok(unet_input_blocks)
 }
 
@@ -260,9 +281,10 @@ pub fn load_unet_output_blocks<B: Backend>(path: &str, device: &B::Device) -> Re
     })
 }*/
 
-
-
-pub fn load_unet_input_blocks<B: Backend>(path: &str, device: &B::Device) -> Result<UNetInputBlocks<B>, Box<dyn Error>> {
+pub fn load_unet_input_blocks<B: Backend>(
+    path: &str,
+    device: &B::Device,
+) -> Result<UNetInputBlocks<B>, Box<dyn Error>> {
     let conv = load_conv2d::<B>(&format!("{}/{}", path, "conv"), device)?;
     let r1 = load_res_block::<B>(&format!("{}/{}", path, "r1"), device)?;
     let r2 = load_res_block::<B>(&format!("{}/{}", path, "r2"), device)?;
@@ -286,7 +308,10 @@ pub fn load_unet_input_blocks<B: Backend>(path: &str, device: &B::Device) -> Res
     })
 }
 
-pub fn load_unet_output_blocks<B: Backend>(path: &str, device: &B::Device) -> Result<UNetOutputBlocks<B>, Box<dyn Error>> {
+pub fn load_unet_output_blocks<B: Backend>(
+    path: &str,
+    device: &B::Device,
+) -> Result<UNetOutputBlocks<B>, Box<dyn Error>> {
     let rt1 = load_res_transformer::<B>(&format!("{}/{}", path, "rt1"), device)?;
     let rt2 = load_res_transformer::<B>(&format!("{}/{}", path, "rt2"), device)?;
     let rtu1 = load_res_transformer_upsample::<B>(&format!("{}/{}", path, "rtu1"), device)?;
@@ -310,8 +335,6 @@ pub fn load_unet_output_blocks<B: Backend>(path: &str, device: &B::Device) -> Re
     })
 }
 
-
-
 pub fn load_unet<B: Backend>(path: &str, device: &B::Device) -> Result<UNet<B>, Box<dyn Error>> {
     let model_channels = load_usize::<B>("model_channels", path, device)?;
     let lin1_time_embed = load_linear::<B>(&format!("{}/{}", path, "lin1_time_embed"), device)?;
@@ -320,21 +343,24 @@ pub fn load_unet<B: Backend>(path: &str, device: &B::Device) -> Result<UNet<B>, 
     let lin1_label_embed = load_linear::<B>(&format!("{}/{}", path, "lin1_label_embed"), device)?;
     let silu_label_embed = SILU::new(); // Assuming SILU::new() initializes a new SILU struct
     let lin2_label_embed = load_linear::<B>(&format!("{}/{}", path, "lin2_label_embed"), device)?;
-    let input_blocks = load_unet_input_blocks::<B>(&format!("{}/{}", path, "input_blocks"), device)?;
-    let middle_block = load_res_transformer_res::<B>(&format!("{}/{}", path, "middle_block"), device)?;
-    let output_blocks = load_unet_output_blocks::<B>(&format!("{}/{}", path, "output_blocks"), device)?;
+    let input_blocks =
+        load_unet_input_blocks::<B>(&format!("{}/{}", path, "input_blocks"), device)?;
+    let middle_block =
+        load_res_transformer_res::<B>(&format!("{}/{}", path, "middle_block"), device)?;
+    let output_blocks =
+        load_unet_output_blocks::<B>(&format!("{}/{}", path, "output_blocks"), device)?;
     let norm_out = load_group_norm::<B>(&format!("{}/{}", path, "norm_out"), device)?;
     let silu_out = SILU::new(); // Assuming SILU::new() initializes a new SILU struct
     let conv_out = load_conv2d::<B>(&format!("{}/{}", path, "conv_out"), device)?;
 
     Ok(UNet {
-        model_channels, 
+        model_channels,
         lin1_time_embed,
         silu_time_embed,
         lin2_time_embed,
-        lin1_label_embed, 
-        silu_label_embed, 
-        lin2_label_embed, 
+        lin1_label_embed,
+        silu_label_embed,
+        lin2_label_embed,
         input_blocks,
         middle_block,
         output_blocks,

@@ -3,74 +3,79 @@ pub mod load;
 use crate::model::layernorm::{LayerNorm, LayerNormConfig};
 
 use burn::{
-    config::Config, 
+    config::Config,
     module::{Module, Param},
     nn,
     tensor::{
+        activation::{sigmoid, softmax},
         backend::Backend,
-        activation::{softmax, sigmoid}, 
-        module::embedding, 
-        Tensor,
-        Distribution, 
-        Int, 
+        module::embedding,
+        Distribution, Int, Tensor,
     },
 };
 
-use crate::model::attention::{qkv_attention, attn_decoder_mask};
-
+use crate::model::attention::{attn_decoder_mask, qkv_attention};
 
 #[derive(Config, Debug)]
 pub struct CLIPConfig {
-    n_vocab: usize, 
-    n_state: usize, 
+    n_vocab: usize,
+    n_state: usize,
     embed_dim: usize,
-    n_head: usize, 
-    n_ctx: usize, 
-    n_layer: usize, 
-    quick_gelu: bool, 
+    n_head: usize,
+    n_ctx: usize,
+    n_layer: usize,
+    quick_gelu: bool,
 }
 
 impl CLIPConfig {
     pub fn init<B: Backend>(&self) -> CLIP<B> {
         let token_embedding = nn::EmbeddingConfig::new(self.n_vocab, self.n_state).init();
-        let position_embedding = Tensor::random([self.n_ctx, self.n_state], Distribution::Normal(0.0, 1.0)).into();
+        let position_embedding =
+            Tensor::random([self.n_ctx, self.n_state], Distribution::Normal(0.0, 1.0)).into();
         let blocks = (0..self.n_layer)
             .into_iter()
-            .map(|_| ResidualDecoderAttentionBlockConfig::new(self.n_state, self.n_head, self.quick_gelu).init())
+            .map(|_| {
+                ResidualDecoderAttentionBlockConfig::new(self.n_state, self.n_head, self.quick_gelu)
+                    .init()
+            })
             .collect();
         let layer_norm = LayerNormConfig::new(self.n_state).init();
-        let text_projection = Some( Tensor::random([self.n_state, self.embed_dim], Distribution::Normal(0.0, 1.0)).into() );
+        let text_projection = Some(
+            Tensor::random(
+                [self.n_state, self.embed_dim],
+                Distribution::Normal(0.0, 1.0),
+            )
+            .into(),
+        );
 
         CLIP {
-            token_embedding, 
-            position_embedding, 
-            blocks, 
-            layer_norm, 
-            text_projection, 
+            token_embedding,
+            position_embedding,
+            blocks,
+            layer_norm,
+            text_projection,
         }
     }
 }
 
-
-  
 #[derive(Module, Debug)]
 pub struct CLIP<B: Backend> {
-    token_embedding: nn::Embedding<B>, 
-    position_embedding: Param<Tensor<B, 2>>, 
-    blocks: Vec<ResidualDecoderAttentionBlock<B>>, 
-    layer_norm: LayerNorm<B>, 
-    text_projection: Option<Param<Tensor<B, 2>>>, 
+    token_embedding: nn::Embedding<B>,
+    position_embedding: Param<Tensor<B, 2>>,
+    blocks: Vec<ResidualDecoderAttentionBlock<B>>,
+    layer_norm: LayerNorm<B>,
+    text_projection: Option<Param<Tensor<B, 2>>>,
 }
 
 impl<B: Backend> CLIP<B> {
     /*pub fn forward(&self, x: Tensor<B, 2, Int>) -> Tensor<B, 3> {
         let [n_batch, seq_len] = x.dims();
-        
+
         let mask = attn_decoder_mask(seq_len, &x.device());
 
-        let embedded = self.token_embedding.forward(x) 
+        let embedded = self.token_embedding.forward(x)
             + self.position_embedding.val().slice([0..seq_len]).unsqueeze();
-        
+
         let mut x = embedded;
         for block in &self.blocks {
             x = block.forward(x, mask.clone());
@@ -87,12 +92,16 @@ impl<B: Backend> CLIP<B> {
 
     pub fn forward_hidden(&self, x: Tensor<B, 2, Int>, hidden_idx: usize) -> Tensor<B, 3> {
         let [n_batch, seq_len] = x.dims();
-        
+
         let mask = attn_decoder_mask(seq_len, &x.device());
 
-        let embedded = self.token_embedding.forward(x) 
-            + self.position_embedding.val().slice([0..seq_len]).unsqueeze();
-        
+        let embedded = self.token_embedding.forward(x)
+            + self
+                .position_embedding
+                .val()
+                .slice([0..seq_len])
+                .unsqueeze();
+
         let mut x = embedded;
         for block in &self.blocks[0..hidden_idx] {
             x = block.forward(x, mask.clone());
@@ -101,14 +110,22 @@ impl<B: Backend> CLIP<B> {
         x
     }
 
-    pub fn forward_hidden_pooled(&self, text: Tensor<B, 2, Int>, hidden_idx: usize) -> (Tensor<B, 3>, Tensor<B, 2>) {
+    pub fn forward_hidden_pooled(
+        &self,
+        text: Tensor<B, 2, Int>,
+        hidden_idx: usize,
+    ) -> (Tensor<B, 3>, Tensor<B, 2>) {
         let [n_batch, seq_len] = text.dims();
-        
+
         let mask = attn_decoder_mask(seq_len, &text.device());
 
-        let embedded = self.token_embedding.forward(text.clone()) 
-            + self.position_embedding.val().slice([0..seq_len]).unsqueeze();
-        
+        let embedded = self.token_embedding.forward(text.clone())
+            + self
+                .position_embedding
+                .val()
+                .slice([0..seq_len])
+                .unsqueeze();
+
         let mut x = embedded;
         let mut h_out = Tensor::empty(x.shape());
         for (i, block) in self.blocks.iter().enumerate() {
@@ -141,38 +158,36 @@ impl<B: Backend> CLIP<B> {
     }
 }
 
-
-
 #[derive(Config)]
 pub struct ResidualDecoderAttentionBlockConfig {
-    n_state: usize, 
-    n_head: usize, 
-    quick_gelu: bool, 
+    n_state: usize,
+    n_head: usize,
+    quick_gelu: bool,
 }
 
 impl ResidualDecoderAttentionBlockConfig {
     pub fn init<B: Backend>(&self) -> ResidualDecoderAttentionBlock<B> {
         let attn = MultiHeadSelfAttentionConfig::new(self.n_state, self.n_head).init();
         let attn_ln = LayerNormConfig::new(self.n_state).init();
-        
+
         let mlp = MLPConfig::new(self.n_state, 4 * self.n_state, self.quick_gelu).init();
         let mlp_ln = LayerNormConfig::new(self.n_state).init();
 
         ResidualDecoderAttentionBlock {
-            attn, 
-            attn_ln, 
-            mlp, 
-            mlp_ln, 
+            attn,
+            attn_ln,
+            mlp,
+            mlp_ln,
         }
     }
 }
 
 #[derive(Module, Debug)]
 pub struct ResidualDecoderAttentionBlock<B: Backend> {
-    attn: MultiHeadSelfAttention<B>, 
-    attn_ln: LayerNorm<B>, 
-    mlp: MLP<B>, 
-    mlp_ln: LayerNorm<B>, 
+    attn: MultiHeadSelfAttention<B>,
+    attn_ln: LayerNorm<B>,
+    mlp: MLP<B>,
+    mlp_ln: LayerNorm<B>,
 }
 
 impl<B: Backend> ResidualDecoderAttentionBlock<B> {
@@ -183,16 +198,20 @@ impl<B: Backend> ResidualDecoderAttentionBlock<B> {
     }
 }
 
-
 #[derive(Config)]
 pub struct MultiHeadSelfAttentionConfig {
     n_state: usize,
-    n_head: usize,  
+    n_head: usize,
 }
 
 impl MultiHeadSelfAttentionConfig {
     fn init<B: Backend>(&self) -> MultiHeadSelfAttention<B> {
-        assert!(self.n_state % self.n_head == 0, "State size {} must be a multiple of head size {}", self.n_state, self.n_head);
+        assert!(
+            self.n_state % self.n_head == 0,
+            "State size {} must be a multiple of head size {}",
+            self.n_state,
+            self.n_head
+        );
 
         let n_head = self.n_head;
         let query = nn::LinearConfig::new(self.n_state, self.n_state).init();
@@ -200,23 +219,23 @@ impl MultiHeadSelfAttentionConfig {
         let value = nn::LinearConfig::new(self.n_state, self.n_state).init();
         let out = nn::LinearConfig::new(self.n_state, self.n_state).init();
 
-        MultiHeadSelfAttention { 
-            n_head, 
-            query, 
-            key, 
-            value, 
-            out 
+        MultiHeadSelfAttention {
+            n_head,
+            query,
+            key,
+            value,
+            out,
         }
     }
 }
 
 #[derive(Module, Debug)]
 pub struct MultiHeadSelfAttention<B: Backend> {
-    n_head: usize, 
-    query: nn::Linear<B>, 
-    key: nn::Linear<B>, 
-    value: nn::Linear<B>, 
-    out: nn::Linear<B>, 
+    n_head: usize,
+    query: nn::Linear<B>,
+    key: nn::Linear<B>,
+    value: nn::Linear<B>,
+    out: nn::Linear<B>,
 }
 
 impl<B: Backend> MultiHeadSelfAttention<B> {
@@ -231,18 +250,11 @@ impl<B: Backend> MultiHeadSelfAttention<B> {
     }
 }
 
-
-
-
-
-
-
-
 #[derive(Config, Debug)]
 pub struct MLPConfig {
-    input_size: usize, 
-    hidden_size: usize, 
-    quick_gelu: bool, 
+    input_size: usize,
+    hidden_size: usize,
+    quick_gelu: bool,
 }
 
 impl MLPConfig {
@@ -255,22 +267,22 @@ impl MLPConfig {
         let quick_gelu = self.quick_gelu;
 
         MLP {
-            quick_gelu, 
-            fc1, 
-            qgelu, 
-            gelu, 
-            fc2, 
+            quick_gelu,
+            fc1,
+            qgelu,
+            gelu,
+            fc2,
         }
     }
 }
 
 #[derive(Module, Debug)]
 pub struct MLP<B: Backend> {
-    quick_gelu: bool, 
-    fc1: nn::Linear<B>, 
-    qgelu: QuickGELU, 
-    gelu: nn::GELU, 
-    fc2: nn::Linear<B>, 
+    quick_gelu: bool,
+    fc1: nn::Linear<B>,
+    qgelu: QuickGELU,
+    gelu: nn::GELU,
+    fc2: nn::Linear<B>,
 }
 
 impl<B: Backend> MLP<B> {
@@ -299,4 +311,3 @@ impl QuickGELU {
         x.clone() * sigmoid(x * 1.702)
     }
 }
-

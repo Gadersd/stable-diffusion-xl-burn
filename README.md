@@ -6,7 +6,8 @@ Stable-Diffusion-XL-Burn is a Rust-based project which ports stable diffusion xl
 
 ### Step 1: Download the Model and Set Environment Variables
 
-Start by downloading the SDXL1.0 model files provided on HuggingFace.
+The model files must be in burn's format. Eventually a python script will be provided to convert any SDXL model to burn's format. 
+Start by downloading the pre-converted SDXL1.0 model files provided on HuggingFace.
 
 ```bash
 wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/diffuser.bin -P ./SDXL1.0/

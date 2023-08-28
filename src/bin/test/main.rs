@@ -1,50 +1,48 @@
 use std::env;
-use std::process;
 use std::error::Error;
+use std::process;
 
-use stablediffusion::model::unet::{UNet, UNetConfig, load::load_unet};
-use stablediffusion::model::autoencoder::{Decoder, DecoderConfig, load::load_decoder};
-use stablediffusion::model::autoencoder::{Encoder, EncoderConfig, load::load_encoder};
-use stablediffusion::model::clip::{CLIP, CLIPConfig, load::load_clip_text_transformer};
-use stablediffusion::model::stablediffusion::{RESOLUTIONS, offset_cosine_schedule_cumprod, Embedder, EmbedderConfig, Diffuser, DiffuserConfig, LatentDecoder, LatentDecoderConfig, load::*};
+use stablediffusion::model::autoencoder::{load::load_decoder, Decoder, DecoderConfig};
+use stablediffusion::model::autoencoder::{load::load_encoder, Encoder, EncoderConfig};
+use stablediffusion::model::clip::{load::load_clip_text_transformer, CLIPConfig, CLIP};
+use stablediffusion::model::stablediffusion::{
+    load::*, offset_cosine_schedule_cumprod, Diffuser, DiffuserConfig, Embedder, EmbedderConfig,
+    LatentDecoder, LatentDecoderConfig, RESOLUTIONS,
+};
+use stablediffusion::model::unet::{load::load_unet, UNet, UNetConfig};
 
 use burn::{
-    config::Config, 
+    config::Config,
     module::{Module, Param},
     nn,
-    tensor::{
-        self, 
-        backend::Backend,
-        Tensor,
-    },
+    tensor::{self, backend::Backend, Tensor},
 };
 
 use burn_tch::{TchBackend, TchDevice};
 
-use burn::record::{self, Recorder, BinFileRecorder, HalfPrecisionSettings};
+use burn::record::{self, BinFileRecorder, HalfPrecisionSettings, Recorder};
 
 fn load_embedder_model<B: Backend>(model_name: &str) -> Result<Embedder<B>, Box<dyn Error>> {
     let config = EmbedderConfig::load(&format!("{}.cfg", model_name))?;
-    let record = BinFileRecorder::<HalfPrecisionSettings>::new()
-        .load(model_name.into())?;
+    let record = BinFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into())?;
 
-    Ok( config.init().load_record(record) )
+    Ok(config.init().load_record(record))
 }
 
 fn load_diffuser_model<B: Backend>(model_name: &str) -> Result<Diffuser<B>, Box<dyn Error>> {
     let config = DiffuserConfig::load(&format!("{}.cfg", model_name))?;
-    let record = BinFileRecorder::<HalfPrecisionSettings>::new()
-        .load(model_name.into())?;
-    
-    Ok( config.init().load_record(record) )
+    let record = BinFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into())?;
+
+    Ok(config.init().load_record(record))
 }
 
-fn load_latent_decoder_model<B: Backend>(model_name: &str) -> Result<LatentDecoder<B>, Box<dyn Error>> {
+fn load_latent_decoder_model<B: Backend>(
+    model_name: &str,
+) -> Result<LatentDecoder<B>, Box<dyn Error>> {
     let config = LatentDecoderConfig::load(&format!("{}.cfg", model_name))?;
-    let record = BinFileRecorder::<HalfPrecisionSettings>::new()
-        .load(model_name.into())?;
+    let record = BinFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into())?;
 
-    Ok( config.init().load_record(record) )
+    Ok(config.init().load_record(record))
 }
 
 use stablediffusion::helper::to_float;
@@ -54,7 +52,7 @@ fn arb_tensor<B: Backend, const D: usize>(dims: [usize; D]) -> Tensor<B, D> {
     to_float(Tensor::arange(0..prod)).sin().reshape(dims)
 }
 
-use stablediffusion::token::{Tokenizer, clip::SimpleTokenizer, open_clip::OpenClipTokenizer};
+use stablediffusion::token::{clip::SimpleTokenizer, open_clip::OpenClipTokenizer, Tokenizer};
 
 /*fn test_tiny_clip<B: Backend>(device: &B::Device) {
     println!("Loading Tiny Clip");
@@ -89,10 +87,14 @@ fn test_clip<B: Backend>(device: &B::Device) {
     let text = "Hello world! asdf!!!!asdf";
     println!("Sampling with text: {}", text);
 
-    let mut tokenized: Vec<_> = tokenizer.encode(text, true, true).into_iter().map(|v| v as i32).collect();
+    let mut tokenized: Vec<_> = tokenizer
+        .encode(text, true, true)
+        .into_iter()
+        .map(|v| v as i32)
+        .collect();
     tokenized.resize(77, tokenizer.padding_token() as i32);
     println!("Tokens = {:?}", tokenized);
-    
+
     let tokens = Tensor::from_ints(&tokenized[..]).unsqueeze();
     let output = encoder.forward_hidden(tokens, 11);
     println!("Output: {:?}", output.into_data());
@@ -107,10 +109,14 @@ fn test_open_clip<B: Backend>(device: &B::Device) {
     let text = "Hello world! asdf!!!!asdf";
     println!("Sampling with text: {}", text);
 
-    let mut tokenized: Vec<_> = tokenizer.encode(text, true, true).into_iter().map(|v| v as i32).collect();
+    let mut tokenized: Vec<_> = tokenizer
+        .encode(text, true, true)
+        .into_iter()
+        .map(|v| v as i32)
+        .collect();
     tokenized.resize(77, tokenizer.padding_token() as i32);
     println!("Tokens = {:?}", tokenized);
-    
+
     let tokens = Tensor::from_ints(&tokenized[..]).unsqueeze();
     let n_layers = encoder.num_layers();
     let (output, pooled) = encoder.forward_hidden_pooled(tokens, n_layers - 1); // penultimate layer
@@ -154,14 +160,20 @@ fn test_tiny_decoder<B: Backend>(device: &B::Device) {
     println!("Output: {:?}", output.into_data());
 }
 
+use burn::tensor::ElementConversion;
 use num_traits::cast::ToPrimitive;
 use stablediffusion::model::stablediffusion::Conditioning;
-use burn::tensor::ElementConversion;
 
-fn switch_backend<B1: Backend, B2: Backend, const D: usize>(x: Tensor<B1, D>, device: &B2::Device) -> Tensor<B2, D> {
+fn switch_backend<B1: Backend, B2: Backend, const D: usize>(
+    x: Tensor<B1, D>,
+    device: &B2::Device,
+) -> Tensor<B2, D> {
     let data = x.into_data();
 
-    let data = tensor::Data::new(data.value.into_iter().map(|v| v.elem()).collect(), data.shape);
+    let data = tensor::Data::new(
+        data.value.into_iter().map(|v| v.elem()).collect(),
+        data.shape,
+    );
 
     Tensor::from_data_device(data, device)
 }
@@ -198,11 +210,20 @@ fn main() {
     };
 
     let conditioning = Conditioning {
-        unconditional_context: switch_backend::<Backend, Backend_f16, 2>(conditioning.unconditional_context, &device), 
-        context: switch_backend::<Backend, Backend_f16, 3>(conditioning.context, &device), 
-        unconditional_channel_context: switch_backend::<Backend, Backend_f16, 1>(conditioning.unconditional_channel_context, &device), 
-        channel_context: switch_backend::<Backend, Backend_f16, 2>(conditioning.channel_context, &device), 
-        resolution: conditioning.resolution, 
+        unconditional_context: switch_backend::<Backend, Backend_f16, 2>(
+            conditioning.unconditional_context,
+            &device,
+        ),
+        context: switch_backend::<Backend, Backend_f16, 3>(conditioning.context, &device),
+        unconditional_channel_context: switch_backend::<Backend, Backend_f16, 1>(
+            conditioning.unconditional_channel_context,
+            &device,
+        ),
+        channel_context: switch_backend::<Backend, Backend_f16, 2>(
+            conditioning.channel_context,
+            &device,
+        ),
+        resolution: conditioning.resolution,
     };
 
     let latent = {
@@ -221,7 +242,8 @@ fn main() {
 
     let images = {
         println!("Loading latent decoder...");
-        let latent_decoder: LatentDecoder<Backend> = load_latent_decoder_model("latent_decoder").unwrap();
+        let latent_decoder: LatentDecoder<Backend> =
+            load_latent_decoder_model("latent_decoder").unwrap();
         let latent_decoder = latent_decoder.to_device(&device);
 
         println!("Running decoder...");
@@ -229,11 +251,16 @@ fn main() {
     };
 
     println!("Saving images...");
-    save_images(&images.buffer, "img", images.width as u32, images.height as u32).unwrap();
+    save_images(
+        &images.buffer,
+        "img",
+        images.width as u32,
+        images.height as u32,
+    )
+    .unwrap();
     println!("Done.");
 
     return;
-
 
     /*let args: Vec<String> = env::args().collect();
     if args.len() != 3 {
@@ -252,8 +279,7 @@ fn main() {
     println!("Successfully converted {} to {}", dump_path, model_name);*/
 }
 
-
-use image::{self, ImageResult, ColorType::Rgb8};
+use image::{self, ColorType::Rgb8, ImageResult};
 
 fn save_images(images: &Vec<Vec<u8>>, basepath: &str, width: u32, height: u32) -> ImageResult<()> {
     for (index, img_data) in images.iter().enumerate() {
@@ -268,12 +294,15 @@ fn save_images(images: &Vec<Vec<u8>>, basepath: &str, width: u32, height: u32) -
 fn save_test_image() -> ImageResult<()> {
     let width = 256;
     let height = 256;
-    let raw: Vec<_> = (0..width * height).into_iter().flat_map(|i| {
-        let row = i / width;
-        let red = (255.0 * row as f64 / height as f64) as u8;
+    let raw: Vec<_> = (0..width * height)
+        .into_iter()
+        .flat_map(|i| {
+            let row = i / width;
+            let red = (255.0 * row as f64 / height as f64) as u8;
 
-        [red, 0, 0]
-    }).collect();
+            [red, 0, 0]
+        })
+        .collect();
 
     image::save_buffer("red.png", &raw[..], width, height, Rgb8)
 }

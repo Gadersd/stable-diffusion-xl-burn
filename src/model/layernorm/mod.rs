@@ -1,19 +1,16 @@
 pub mod load;
 
 use burn::{
-    config::Config, 
+    config::Config,
     module::{Module, Param},
-    tensor::{
-        backend::Backend,
-        Tensor,
-    },
+    tensor::{backend::Backend, Tensor},
 };
 
 #[derive(Config)]
 pub struct LayerNormConfig {
-    d_size: usize, 
+    d_size: usize,
     #[config(default = 1e-5)]
-    eps: f64, 
+    eps: f64,
 }
 
 impl LayerNormConfig {
@@ -23,19 +20,15 @@ impl LayerNormConfig {
 
         let eps = self.eps;
 
-        LayerNorm {
-            gamma, 
-            beta, 
-            eps, 
-        }
+        LayerNorm { gamma, beta, eps }
     }
 }
 
 #[derive(Module, Debug)]
 pub struct LayerNorm<B: Backend> {
-    gamma: Param<Tensor<B, 1>>, 
-    beta: Param<Tensor<B, 1>>, 
-    eps: f64, 
+    gamma: Param<Tensor<B, 1>>,
+    beta: Param<Tensor<B, 1>>,
+    eps: f64,
 }
 
 impl<B: Backend> LayerNorm<B> {
@@ -51,5 +44,6 @@ pub fn layernorm<B: Backend, const D: usize>(x: Tensor<B, D>, eps: f64) -> Tenso
     //x.sub(mean).div(var.sqrt().add_scalar(eps))
 
     let u = x.clone() - x.mean_dim(D - 1);
-    u.clone().div( (u.clone() * u).mean_dim(D - 1).add_scalar(eps).sqrt() )
+    u.clone()
+        .div((u.clone() * u).mean_dim(D - 1).add_scalar(eps).sqrt())
 }

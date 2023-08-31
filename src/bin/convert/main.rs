@@ -68,8 +68,6 @@ fn save_model_file<B: Backend, M: Module<B>>(
     BinFileRecorder::<HalfPrecisionSettings>::new().record(model.into_record(), name.into())
 }
 
-use std::env;
-
 fn main() {
     let params = match env::args().nth(1) {
         Some(folder) => folder,
@@ -87,7 +85,7 @@ fn main() {
         Ok(_) => (),
         Err(e) => {
             eprintln!("Error converting embedder: {}", e);
-            std::process::exit(1);
+            //std::process::exit(1);
         }
     }
 
@@ -96,7 +94,7 @@ fn main() {
         Ok(_) => (),
         Err(e) => {
             eprintln!("Error converting diffuser: {}", e);
-            std::process::exit(1);
+            //std::process::exit(1);
         }
     }
 
@@ -105,7 +103,7 @@ fn main() {
         Ok(_) => (),
         Err(e) => {
             eprintln!("Error converting latent decoder: {}", e);
-            std::process::exit(1);
+            //std::process::exit(1);
         }
     }
 

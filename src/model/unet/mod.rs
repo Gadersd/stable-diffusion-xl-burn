@@ -60,7 +60,9 @@ pub struct UNetConfig {
     in_channels: usize,
     out_channels: usize,
     model_channels: usize,
+    channel_mults: Vec<usize>, 
     n_head_channels: usize,
+    transformer_depths: Vec<usize>, 
     context_dim: usize,
 }
 
@@ -70,6 +72,8 @@ impl UNetConfig {
             self.model_channels % self.n_head_channels == 0,
             "The number of head channels must evenly divide the model channels."
         );
+
+        let n_levels = self.channel_mults.len();
 
         let time_embed_dim = self.model_channels * 4;
 
@@ -106,7 +110,61 @@ impl UNetConfig {
 
         let n_head = |channels| channels / self.n_head_channels;
 
-        let input_blocks = UNetInputBlocks {
+        let mut input_blocks = Vec::new();
+        input_blocks.push(
+            UNetBlocks::Conv(
+                Conv2dConfig::new([self.in_channels, self.model_channels], [3, 3])
+                    .with_padding(PaddingConfig2d::Explicit(1, 1))
+                    .init()
+            )
+        );
+        for level in 0..n_levels {
+            let channels_in = self.channel_mults[level.saturating_sub(1)] * self.model_channels;
+            let channels_out = self.channel_mults[level] * self.model_channels;
+
+            let (r1, r2) = if level != 1 && level != 2 {
+                let r1 = UNetBlocks::Res(ResBlockConfig::new(channels_in, time_embed_dim, channels_out)
+                .init());
+
+                let r2 = UNetBlocks::Res(ResBlockConfig::new(channels_out, time_embed_dim, channels_out)
+                .init());
+
+                (r1, r2)
+            } else {
+                let n_head = n_head(channels_out);
+                let depth = self.transformer_depths[level];
+
+                let rt1 = UNetBlocks::ResT(ResTransformerConfig::new(
+                    channels_in,
+                    time_embed_dim,
+                    channels_out,
+                    self.context_dim,
+                    n_head,
+                    depth,
+                ).init());
+
+                let rt2 = UNetBlocks::ResT(ResTransformerConfig::new(
+                    channels_out,
+                    time_embed_dim,
+                    channels_out,
+                    self.context_dim,
+                    n_head,
+                    depth,
+                ).init());
+
+                (rt1, rt2)
+            };
+
+            input_blocks.extend([r1, r2]);
+
+            // no downsampling on last block
+            if level != n_levels - 1 {
+                let d = DownsampleConfig::new(channels_out).init();
+                input_blocks.push(UNetBlocks::Down(d));
+            }
+        }
+
+        /*let input_blocks = UNetInputBlocks {
             conv: Conv2dConfig::new([self.in_channels, self.model_channels], [3, 3])
                 .with_padding(PaddingConfig2d::Explicit(1, 1))
                 .init(),
@@ -152,7 +210,7 @@ impl UNetConfig {
                 10,
             )
             .init(),
-        };
+        };*/
 
         /*let input_blocks = UNetInputBlocks {
             conv: Conv2dConfig::new([self.in_channels, self.model_channels], [3, 3]).with_padding(PaddingConfig2d::Explicit(1, 1)).init(),
@@ -169,17 +227,102 @@ impl UNetConfig {
             r2: ResBlockConfig::new(1280, 1280, 1280).init(),
         };*/
 
+        let channels_in_middle = self.channel_mults.last().unwrap() * self.model_channels;
+        let &depth_middle = self.transformer_depths.last().unwrap();
         let middle_block = ResTransformerResConfig::new(
-            4 * self.model_channels,
-            4 * self.model_channels,
-            4 * self.model_channels,
+            channels_in_middle,
+            channels_in_middle,
+            channels_in_middle,
             self.context_dim,
-            n_head(4 * self.model_channels),
-            10,
+            n_head(channels_in_middle),
+            depth_middle,
         )
         .init();
 
-        let output_blocks = UNetOutputBlocks {
+
+
+
+
+
+
+
+
+
+
+
+
+        let mut output_blocks = Vec::new();
+        for level in (0..n_levels).into_iter().rev() {
+            let next_level = if level != n_levels - 1 {level + 1} else {level};
+            let channels_out = self.channel_mults[level] * self.model_channels;
+
+            let channels_in1 = self.channel_mults[next_level] * self.model_channels + channels_out;
+            let channels_in2 = 2 * channels_out;
+            let channels_in3 = channels_out + self.channel_mults[level.saturating_sub(1)] * self.model_channels;
+
+            let (r1, r2, r3) = if level != 1 && level != 2 {
+                let r1 = UNetBlocks::Res(ResBlockConfig::new(channels_in1, time_embed_dim, channels_out)
+                .init());
+                
+                let r2 = UNetBlocks::Res(ResBlockConfig::new(channels_in2, time_embed_dim, channels_out)
+                .init());
+
+                let r3 = if level != 0 {
+                    UNetBlocks::ResU(ResUpsampleConfig::new(channels_in3, time_embed_dim, channels_out)
+                    .init())
+                } else {
+                    UNetBlocks::Res(ResBlockConfig::new(channels_in3, time_embed_dim, channels_out)
+                    .init())
+                };                
+
+                (r1, r2, r3)
+            } else {
+                let n_head = n_head(channels_out);
+                let depth = self.transformer_depths[level];
+
+                let rt1 = UNetBlocks::ResT(ResTransformerConfig::new(
+                    channels_in1,
+                    time_embed_dim,
+                    channels_out,
+                    self.context_dim,
+                    n_head,
+                    depth,
+                ).init());
+
+                let rt2 = UNetBlocks::ResT(ResTransformerConfig::new(
+                    channels_in2,
+                    time_embed_dim,
+                    channels_out,
+                    self.context_dim,
+                    n_head,
+                    depth,
+                ).init());
+
+                let rtu = UNetBlocks::ResTU(ResTransformerUpsampleConfig::new(
+                    channels_in3,
+                    time_embed_dim,
+                    channels_out,
+                    self.context_dim,
+                    n_head,
+                    depth,
+                ).init());
+
+                (rt1, rt2, rtu)
+            };
+
+            input_blocks.extend([r1, r2, r3]);
+        }
+
+
+
+
+
+
+
+
+
+
+        /*let output_blocks = UNetOutputBlocks {
             rt1: ResTransformerConfig::new(
                 8 * self.model_channels,
                 time_embed_dim,
@@ -240,7 +383,7 @@ impl UNetConfig {
                 .init(),
             r3: ResBlockConfig::new(2 * self.model_channels, time_embed_dim, self.model_channels)
                 .init(),
-        };
+        };*/
 
         /*let output_blocks = UNetOutputBlocks {
             r1: ResBlockConfig::new(2560, 1280, 1280).init(),
@@ -290,9 +433,9 @@ pub struct UNet<B: Backend> {
     lin1_label_embed: nn::Linear<B>,
     silu_label_embed: SILU,
     lin2_label_embed: nn::Linear<B>,
-    input_blocks: UNetInputBlocks<B>,
+    input_blocks: Vec<UNetBlocks<B>>,
     middle_block: ResTransformerRes<B>,
-    output_blocks: UNetOutputBlocks<B>,
+    output_blocks: Vec<UNetBlocks<B>>,
     norm_out: GroupNorm<B>,
     silu_out: SILU,
     conv_out: Conv2d<B>,
@@ -323,8 +466,8 @@ impl<B: Backend> UNet<B> {
         let mut x = x;
 
         // input blocks
-        for block in self.input_blocks.as_array() {
-            x = block.forward(x, emb.clone(), context.clone());
+        for block in &self.input_blocks {
+            x = block.as_ref().forward(x, emb.clone(), context.clone());
             saved_inputs.push(x.clone())
         }
 
@@ -332,9 +475,9 @@ impl<B: Backend> UNet<B> {
         x = self.middle_block.forward(x, emb.clone(), context.clone());
 
         // output blocks
-        for block in self.output_blocks.as_array() {
+        for block in &self.output_blocks {
             x = Tensor::cat(vec![x, saved_inputs.pop().unwrap()], 1);
-            x = block.forward(x, emb.clone(), context.clone());
+            x = block.as_ref().forward(x, emb.clone(), context.clone());
         }
 
         let x = self.norm_out.forward(x);
@@ -357,34 +500,259 @@ pub struct UNetInputBlocks<B: Backend> {
     rt4: ResTransformer<B>,
 }
 
-impl<B: Backend> UNetInputBlocks<B> {
-    fn as_array(&self) -> [&dyn UNetBlock<B>; 9] {
-        [
-            &self.conv, &self.r1, &self.r2, &self.d1, &self.rt1, &self.rt2, &self.d2, &self.rt3,
-            &self.rt4,
-        ]
+#[derive(Clone, Debug)]
+pub enum UNetBlocks<B: Backend> {
+    Conv(Conv2d<B>), 
+    Res(ResBlock<B>), 
+    Down(Downsample<B>), 
+    ResT(ResTransformer<B>), 
+    ResTU(ResTransformerUpsample<B>), 
+    ResU(ResUpsample<B>),
+}
+
+/*#[derive(Clone, Debug)]
+enum UNetBlockInnerModule<B: ADBackend> {
+    Conv(<Conv2d<B> as Module<B>>::InnerModule), 
+    Res(<ResBlock<B> as Module<B>>::InnerModule), 
+    Down(<Downsample<B> as Module<B>>::InnerModule), 
+    ResT(<ResTransformer<B> as Module<B>>::InnerModule), 
+    ResTU(<ResTransformerUpsample<B> as Module<B>>::InnerModule), 
+    ResU(<ResUpsample<B> as Module<B>>::InnerModule),
+}*/
+
+use burn::tensor::backend::ADBackend;
+use burn::module::ADModule;
+
+impl<B: ADBackend> ADModule<B> for UNetBlocks<B> {
+    type InnerModule = UNetBlocks<<B as ADBackend>::InnerBackend>;
+
+    // Required method
+    fn valid(&self) -> Self::InnerModule {
+        match self {
+            UNetBlocks::Conv(b) => UNetBlocks::Conv(b.valid()), 
+            UNetBlocks::Res(b) => UNetBlocks::Res(b.valid()), 
+            UNetBlocks::Down(b) => UNetBlocks::Down(b.valid()), 
+            UNetBlocks::ResT(b) => UNetBlocks::ResT(b.valid()), 
+            UNetBlocks::ResTU(b) => UNetBlocks::ResTU(b.valid()), 
+            UNetBlocks::ResU(b) => UNetBlocks::ResU(b.valid()), 
+        }
     }
 }
 
-#[derive(Module, Debug)]
-pub struct UNetOutputBlocks<B: Backend> {
-    rt1: ResTransformer<B>,
-    rt2: ResTransformer<B>,
-    rtu1: ResTransformerUpsample<B>,
-    rt3: ResTransformer<B>,
-    rt4: ResTransformer<B>,
-    rtu2: ResTransformerUpsample<B>,
-    r1: ResBlock<B>,
-    r2: ResBlock<B>,
-    r3: ResBlock<B>,
+use serde::{Serialize, Deserialize};
+
+#[derive(Clone, Debug)]
+pub enum UNetBlockRecord<B: Backend> {
+    Conv(<Conv2d<B> as Module<B>>::Record), 
+    Res(<ResBlock<B> as Module<B>>::Record), 
+    Down(<Downsample<B> as Module<B>>::Record), 
+    ResT(<ResTransformer<B> as Module<B>>::Record), 
+    ResTU(<ResTransformerUpsample<B> as Module<B>>::Record), 
+    ResU(<ResUpsample<B> as Module<B>>::Record),
 }
 
-impl<B: Backend> UNetOutputBlocks<B> {
-    fn as_array(&self) -> [&dyn UNetBlock<B>; 9] {
-        [
-            &self.rt1, &self.rt2, &self.rtu1, &self.rt3, &self.rt4, &self.rtu2, &self.r1, &self.r2,
-            &self.r3,
-        ]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(bound = "")]
+pub enum UNetBlockRecordItem<B: Backend, S: PrecisionSettings> {
+  Conv(<<Conv2d<B> as Module<B>>::Record as Record>::Item<S>),
+  Res(<<ResBlock<B> as Module<B>>::Record as Record>::Item<S>),
+  Down(<<Downsample<B> as Module<B>>::Record as Record>::Item<S>),
+  ResT(<<ResTransformer<B> as Module<B>>::Record as Record>::Item<S>),
+  ResTU(<<ResTransformerUpsample<B> as Module<B>>::Record as Record>::Item<S>),
+  ResU(<<ResUpsample<B> as Module<B>>::Record as Record>::Item<S>),
+}
+
+use burn::record::Record;
+use burn::record::PrecisionSettings;
+use burn::module::ModuleVisitor;
+
+impl<B: Backend> Record for UNetBlockRecord<B> {
+    type Item<S: PrecisionSettings> = UNetBlockRecordItem<B, S>;
+
+    // Required methods
+    fn into_item<S>(self) -> Self::Item<S>
+       where S: PrecisionSettings {
+        match self {
+            UNetBlockRecord::Conv(b) => UNetBlockRecordItem::Conv(b.into_item()), 
+            UNetBlockRecord::Res(b) => UNetBlockRecordItem::Res(b.into_item()), 
+            UNetBlockRecord::Down(b) => UNetBlockRecordItem::Down(b.into_item()), 
+            UNetBlockRecord::ResT(b) => UNetBlockRecordItem::ResT(b.into_item()), 
+            UNetBlockRecord::ResTU(b) => UNetBlockRecordItem::ResTU(b.into_item()), 
+            UNetBlockRecord::ResU(b) => UNetBlockRecordItem::ResU(b.into_item()), 
+        }
+       }
+    fn from_item<S>(item: Self::Item<S>) -> Self
+       where S: PrecisionSettings {
+        match item {
+            UNetBlockRecordItem::Conv(b) => UNetBlockRecord::Conv(<Conv2d<B> as Module<B>>::Record::from_item(b)), 
+            UNetBlockRecordItem::Res(b) => UNetBlockRecord::Res(<ResBlock<B> as Module<B>>::Record::from_item(b)), 
+            UNetBlockRecordItem::Down(b) => UNetBlockRecord::Down(<Downsample<B> as Module<B>>::Record::from_item(b)), 
+            UNetBlockRecordItem::ResT(b) => UNetBlockRecord::ResT(<ResTransformer<B> as Module<B>>::Record::from_item(b)), 
+            UNetBlockRecordItem::ResTU(b) => UNetBlockRecord::ResTU(<ResTransformerUpsample<B> as Module<B>>::Record::from_item(b)), 
+            UNetBlockRecordItem::ResU(b) => UNetBlockRecord::ResU(<ResUpsample<B> as Module<B>>::Record::from_item(b)), 
+        }
+       }
+}
+
+use burn::module::ModuleMapper;
+
+impl<B: Backend> Module<B> for UNetBlocks<B> {
+    type Record = UNetBlockRecord<B>;
+
+    // Required methods
+    fn visit<V>(&self, visitor: &mut V)
+       where V: ModuleVisitor<B> {
+        match self {
+            UNetBlocks::Conv(b) => {b.visit(visitor);}, 
+            UNetBlocks::Res(b) => {b.visit(visitor);}, 
+            UNetBlocks::Down(b) => {b.visit(visitor);}, 
+            UNetBlocks::ResT(b) => {b.visit(visitor);}, 
+            UNetBlocks::ResTU(b) => {b.visit(visitor);}, 
+            UNetBlocks::ResU(b) => {b.visit(visitor);}, 
+        };
+       }
+    fn map<M>(self, mapper: &mut M) -> Self
+       where M: ModuleMapper<B> {
+        match self {
+            UNetBlocks::Conv(b) => UNetBlocks::Conv(b.map(mapper)), 
+            UNetBlocks::Res(b) => UNetBlocks::Res(b.map(mapper)), 
+            UNetBlocks::Down(b) => UNetBlocks::Down(b.map(mapper)), 
+            UNetBlocks::ResT(b) => UNetBlocks::ResT(b.map(mapper)),  
+            UNetBlocks::ResTU(b) => UNetBlocks::ResTU(b.map(mapper)), 
+            UNetBlocks::ResU(b) => UNetBlocks::ResU(b.map(mapper)), 
+        }
+        
+       }
+       fn load_record(self, record: Self::Record) -> Self {
+        match self {
+          UNetBlocks::Conv(b) => {
+            let record = if let UNetBlockRecord::Conv(r) = record {
+              Some(r)  
+            } else {
+              None
+            };
+            UNetBlocks::Conv(b.load_record(record.unwrap()))
+          },
+          UNetBlocks::Res(b) => {
+            let record = if let UNetBlockRecord::Res(r) = record {
+              Some(r)
+            } else {
+              None  
+            };
+            UNetBlocks::Res(b.load_record(record.unwrap()))
+          },
+          UNetBlocks::Down(b) => {
+            let record = if let UNetBlockRecord::Down(r) = record {
+              Some(r)
+            } else {
+              None
+            };
+            UNetBlocks::Down(b.load_record(record.unwrap()))
+          },
+          UNetBlocks::ResT(b) => {
+            let record = if let UNetBlockRecord::ResT(r) = record {
+              Some(r)
+            } else {
+              None
+            };
+            UNetBlocks::ResT(b.load_record(record.unwrap()))
+          },
+      
+          UNetBlocks::ResTU(b) => {
+            let record = if let UNetBlockRecord::ResTU(r) = record {
+              Some(r)
+            } else {
+              None
+            };
+            UNetBlocks::ResTU(b.load_record(record.unwrap()))
+          },
+      
+          UNetBlocks::ResU(b) => {
+            let record = if let UNetBlockRecord::ResU(r) = record {
+              Some(r)
+            } else {
+              None  
+            };
+            UNetBlocks::ResU(b.load_record(record.unwrap()))
+          },
+        }
+      }
+
+    fn into_record(self) -> Self::Record {
+        match self {
+            UNetBlocks::Conv(b) => UNetBlockRecord::Conv(b.into_record()),
+            UNetBlocks::Res(b) => UNetBlockRecord::Res(b.into_record()),  
+            UNetBlocks::Down(b) => UNetBlockRecord::Down(b.into_record()),
+            UNetBlocks::ResT(b) => UNetBlockRecord::ResT(b.into_record()),
+            UNetBlocks::ResTU(b) => UNetBlockRecord::ResTU(b.into_record()),
+            UNetBlocks::ResU(b) => UNetBlockRecord::ResU(b.into_record()),
+        }
+    }
+
+    fn devices(&self) -> Vec<<B as Backend>::Device> {
+        match self {
+            UNetBlocks::Conv(b) => b.devices(),
+            UNetBlocks::Res(b) => b.devices(),
+            UNetBlocks::Down(b) => b.devices(), 
+            UNetBlocks::ResT(b) => b.devices(),
+            UNetBlocks::ResTU(b) => b.devices(),
+            UNetBlocks::ResU(b) => b.devices(),
+        }
+      }
+    
+      fn fork(self, device: &<B as Backend>::Device) -> Self {
+        match self {
+            UNetBlocks::Conv(b) => UNetBlocks::Conv(b.fork(device)),
+            UNetBlocks::Res(b) => UNetBlocks::Res(b.fork(device)),
+            UNetBlocks::Down(b) => UNetBlocks::Down(b.fork(device)),
+            UNetBlocks::ResT(b) => UNetBlocks::ResT(b.fork(device)),
+            UNetBlocks::ResTU(b) => UNetBlocks::ResTU(b.fork(device)),
+            UNetBlocks::ResU(b) => UNetBlocks::ResU(b.fork(device)),
+        }
+      }
+      fn to_device(self, device: &<B as Backend>::Device) -> Self {
+        match self {
+            UNetBlocks::Conv(b) => UNetBlocks::Conv(b.to_device(device)),
+            UNetBlocks::Res(b) => UNetBlocks::Res(b.to_device(device)),  
+            UNetBlocks::Down(b) => UNetBlocks::Down(b.to_device(device)),
+            UNetBlocks::ResT(b) => UNetBlocks::ResT(b.to_device(device)),
+            UNetBlocks::ResTU(b) => UNetBlocks::ResTU(b.to_device(device)),
+            UNetBlocks::ResU(b) => UNetBlocks::ResU(b.to_device(device)),
+        }
+      }
+    
+      fn no_grad(self) -> Self {
+        match self {
+            UNetBlocks::Conv(b) => UNetBlocks::Conv(b.no_grad()),
+            UNetBlocks::Res(b) => UNetBlocks::Res(b.no_grad()),
+            UNetBlocks::Down(b) => UNetBlocks::Down(b.no_grad()),
+            UNetBlocks::ResT(b) => UNetBlocks::ResT(b.no_grad()),
+            UNetBlocks::ResTU(b) => UNetBlocks::ResTU(b.no_grad()),
+            UNetBlocks::ResU(b) => UNetBlocks::ResU(b.no_grad()), 
+        }
+      }
+      fn num_params(&self) -> usize {
+        match self {
+          UNetBlocks::Conv(b) => b.num_params(),
+          UNetBlocks::Res(b) => b.num_params(),
+          UNetBlocks::Down(b) => b.num_params(),
+          UNetBlocks::ResT(b) => b.num_params(), 
+          UNetBlocks::ResTU(b) => b.num_params(),
+          UNetBlocks::ResU(b) => b.num_params(),
+        }
+      }
+}
+
+impl<B: Backend> UNetBlocks<B> {
+    fn as_ref(&self) -> &dyn UNetBlock<B> {
+        match self {
+            UNetBlocks::Conv(b) => b, 
+            UNetBlocks::Res(b) => b, 
+            UNetBlocks::Down(b) => b, 
+            UNetBlocks::ResT(b) => b, 
+            UNetBlocks::ResTU(b) => b, 
+            UNetBlocks::ResU(b) => b, 
+        }
     }
 }
 
@@ -436,40 +804,59 @@ impl<B: Backend> UNetBlock<B> for ResTransformer<B> {
     }
 }
 
+
+
+
 #[derive(Config)]
-pub struct ResUpSampleConfig {
+pub struct ResUpsampleConfig {
     n_channels_in: usize,
     n_channels_embed: usize,
     n_channels_out: usize,
 }
 
-impl ResUpSampleConfig {
-    fn init<B: Backend>(&self) -> ResUpSample<B> {
+impl ResUpsampleConfig {
+    fn init<B: Backend>(&self) -> ResUpsample<B> {
         let res = ResBlockConfig::new(
             self.n_channels_in,
             self.n_channels_embed,
             self.n_channels_out,
         )
         .init();
+
         let upsample = UpsampleConfig::new(self.n_channels_out).init();
 
-        ResUpSample { res, upsample }
+        ResUpsample {
+            res,
+            upsample,
+        }
     }
 }
 
 #[derive(Module, Debug)]
-pub struct ResUpSample<B: Backend> {
+pub struct ResUpsample<B: Backend> {
     res: ResBlock<B>,
     upsample: Upsample<B>,
 }
 
-impl<B: Backend> UNetBlock<B> for ResUpSample<B> {
+impl<B: Backend> UNetBlock<B> for ResUpsample<B> {
     fn forward(&self, x: Tensor<B, 4>, emb: Tensor<B, 2>, context: Tensor<B, 3>) -> Tensor<B, 4> {
         let x = self.res.forward(x, emb);
         let x = self.upsample.forward(x);
         x
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
 
 #[derive(Config)]
 pub struct ResTransformerUpsampleConfig {

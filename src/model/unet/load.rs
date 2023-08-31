@@ -191,11 +191,11 @@ pub fn load_res_transformer_upsample<B: Backend>(
 pub fn load_res_upsample<B: Backend>(
     path: &str,
     device: &B::Device,
-) -> Result<ResUpSample<B>, Box<dyn Error>> {
+) -> Result<ResUpsample<B>, Box<dyn Error>> {
     let res = load_res_block::<B>(&format!("{}/{}", path, "res"), device)?;
     let upsample = load_upsample::<B>(&format!("{}/{}", path, "upsample"), device)?;
 
-    let res_upsample = ResUpSample {
+    let res_upsample = ResUpsample {
         res: res,
         upsample: upsample,
     };
@@ -281,7 +281,33 @@ pub fn load_unet_output_blocks<B: Backend>(path: &str, device: &B::Device) -> Re
     })
 }*/
 
-pub fn load_unet_input_blocks<B: Backend>(
+use std::fs;
+
+pub fn load_unet_blocks<B: Backend>(
+    path: &str,
+    device: &B::Device,
+) -> Result<Vec<UNetBlocks<B>>, Box<dyn Error>> {
+    let n_blocks = load_usize::<B>("n_blocks", path, device)?;
+    (0..n_blocks)
+        .into_iter()
+        .map(|i| {
+            let block_path = format!("{}/{}", path, i);
+            let block_type = fs::read_to_string(&format!("{}/type.txt", block_path))?;
+            let b = match block_type.as_str() {
+                "conv" => UNetBlocks::Conv(load_conv2d::<B>(&block_path, device)?), 
+                "resnet" => UNetBlocks::Res(load_res_block::<B>(&block_path, device)?), 
+                "downsample" => UNetBlocks::Down(load_downsample::<B>(&block_path, device)?), 
+                "resnet_transformer" => UNetBlocks::ResT(load_res_transformer::<B>(&block_path, device)?), 
+                "resnet_transformer_upsample" => UNetBlocks::ResTU(load_res_transformer_upsample::<B>(&block_path, device)?), 
+                "resnet_upsample" => UNetBlocks::ResU(load_res_upsample::<B>(&block_path, device)?), 
+                _ => panic!("Invalid type."), 
+            };
+            Ok(b)
+        })
+        .collect::<Result<_, _>>()
+}
+
+/*pub fn load_unet_input_blocks<B: Backend>(
     path: &str,
     device: &B::Device,
 ) -> Result<UNetInputBlocks<B>, Box<dyn Error>> {
@@ -333,7 +359,7 @@ pub fn load_unet_output_blocks<B: Backend>(
         r2,
         r3,
     })
-}
+}*/
 
 pub fn load_unet<B: Backend>(path: &str, device: &B::Device) -> Result<UNet<B>, Box<dyn Error>> {
     let model_channels = load_usize::<B>("model_channels", path, device)?;
@@ -344,11 +370,13 @@ pub fn load_unet<B: Backend>(path: &str, device: &B::Device) -> Result<UNet<B>, 
     let silu_label_embed = SILU::new(); // Assuming SILU::new() initializes a new SILU struct
     let lin2_label_embed = load_linear::<B>(&format!("{}/{}", path, "lin2_label_embed"), device)?;
     let input_blocks =
-        load_unet_input_blocks::<B>(&format!("{}/{}", path, "input_blocks"), device)?;
+        load_unet_blocks::<B>(&format!("{}/{}", path, "input_blocks"), device)?;
+        //load_unet_input_blocks::<B>(&format!("{}/{}", path, "input_blocks"), device)?;
     let middle_block =
         load_res_transformer_res::<B>(&format!("{}/{}", path, "middle_block"), device)?;
     let output_blocks =
-        load_unet_output_blocks::<B>(&format!("{}/{}", path, "output_blocks"), device)?;
+        load_unet_blocks::<B>(&format!("{}/{}", path, "output_blocks"), device)?;
+        //load_unet_output_blocks::<B>(&format!("{}/{}", path, "output_blocks"), device)?;
     let norm_out = load_group_norm::<B>(&format!("{}/{}", path, "norm_out"), device)?;
     let silu_out = SILU::new(); // Assuming SILU::new() initializes a new SILU struct
     let conv_out = load_conv2d::<B>(&format!("{}/{}", path, "conv_out"), device)?;

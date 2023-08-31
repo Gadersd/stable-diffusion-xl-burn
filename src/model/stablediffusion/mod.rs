@@ -247,7 +247,9 @@ impl<B: Backend> LatentDecoder<B> {
 pub struct DiffuserConfig {
     adm_in_channels: usize,
     model_channels: usize,
+    channel_mults: Vec<usize>, 
     num_head_channels: usize,
+    transformer_depths: Vec<usize>, 
     context_dim: usize,
 }
 
@@ -261,7 +263,9 @@ impl DiffuserConfig {
             4,
             4,
             self.model_channels,
+            self.channel_mults.clone(), 
             self.num_head_channels,
+            self.transformer_depths.clone(), 
             self.context_dim,
         )
         .init();

@@ -343,7 +343,9 @@ impl<B: Backend> Diffuser<B> {
 
         let sigma = 0.0; // Use deterministic diffusion
 
-        for t in (step_start..self.n_steps).rev().step_by(step_size) {
+        let step_start = self.n_steps - step_start;
+
+        for t in (0..step_start).rev().step_by(step_size) {
             let current_alpha: f64 = self
                 .alpha_cumulative_products
                 .val()
@@ -395,10 +397,10 @@ impl<B: Backend> Diffuser<B> {
         let full_context_dim = conditioning.unconditional_context_full.dims()[0];
         let open_clip_context_dim = conditioning.unconditional_context_open_clip.dims()[0];
 
-        let (unconditional_context, context) = if !self.is_refiner {
-            (conditioning.unconditional_context_full, conditioning.context_full)
+        let (unconditional_context, context, unconditional_channel_context, channel_context) = if !self.is_refiner {
+            (conditioning.unconditional_context_full, conditioning.context_full, conditioning.unconditional_channel_context, conditioning.channel_context)
         } else {
-            (conditioning.unconditional_context_open_clip, conditioning.context_open_clip)
+            (conditioning.unconditional_context_open_clip, conditioning.context_open_clip, conditioning.unconditional_channel_context_refiner, conditioning.channel_context_refiner)
         };
 
         let unconditional_latent = self.diffusion.forward(
@@ -407,8 +409,7 @@ impl<B: Backend> Diffuser<B> {
             unconditional_context
                 .unsqueeze()
                 .repeat(0, n_batch),
-            conditioning
-                .unconditional_channel_context
+            unconditional_channel_context
                 .unsqueeze()
                 .repeat(0, n_batch),
         );
@@ -417,7 +418,7 @@ impl<B: Backend> Diffuser<B> {
             latent,
             timestep,
             context,
-            conditioning.channel_context,
+            channel_context,
         );
 
         /*let latent = self.diffusion.forward(
@@ -429,8 +430,12 @@ impl<B: Backend> Diffuser<B> {
         let unconditional_latent = latent.clone().slice([0..n_batch]);
         let conditional_latent = latent.slice([n_batch..2 * n_batch]);*/
 
-        unconditional_latent.clone()
+        if self.is_refiner {
+            conditional_latent
+        } else {
+            unconditional_latent.clone()
             + (conditional_latent - unconditional_latent) * unconditional_guidance_scale
+        }
     }
 }
 
@@ -441,7 +446,9 @@ pub struct Conditioning<B: Backend> {
     pub context_full: Tensor<B, 3>,
     pub context_open_clip: Tensor<B, 3>,
     pub unconditional_channel_context: Tensor<B, 1>,
+    pub unconditional_channel_context_refiner: Tensor<B, 1>,
     pub channel_context: Tensor<B, 2>,
+    pub channel_context_refiner: Tensor<B, 2>,
     pub resolution: [usize; 2], // (height, width)
 }
 
@@ -539,9 +546,9 @@ impl<B: Backend> Embedder<B> {
         ];
         let batched_ar = ar.unsqueeze().repeat(0, n_batch);
 
-        let (unconditional_context_full, unconditional_context_open_clip, unconditional_channel_context) =
+        let (unconditional_context_full, unconditional_context_open_clip, unconditional_channel_context, unconditional_channel_context_refiner) =
             self.unconditional_context(size.clone(), crop.clone(), batched_ar.clone());
-        let (context_full, context_open_clip, channel_context) = self.context(text, size, crop, batched_ar);
+        let (context_full, context_open_clip, channel_context, channel_context_refiner) = self.context(text, size, crop, batched_ar);
 
         Conditioning {
             unconditional_context_full,
@@ -549,7 +556,9 @@ impl<B: Backend> Embedder<B> {
             context_full,
             context_open_clip, 
             unconditional_channel_context,
+            unconditional_channel_context_refiner, 
             channel_context,
+            channel_context_refiner, 
             resolution,
         }
     }
@@ -559,15 +568,19 @@ impl<B: Backend> Embedder<B> {
         size: Tensor<B, 2, Int>,
         crop: Tensor<B, 2, Int>,
         ar: Tensor<B, 2, Int>,
-    ) -> (Tensor<B, 2>, Tensor<B, 2>, Tensor<B, 1>) {
+    ) -> (Tensor<B, 2>, Tensor<B, 2>, Tensor<B, 1>, Tensor<B, 1>) {
         let clip_context = text_to_context_clip("", &self.clip, &self.clip_tokenizer);
         let (open_clip_context, pooled_text_embed) =
             text_to_context_open_clip("", &self.open_clip, &self.open_clip_tokenizer);
 
+        let [n_batch, _] = ar.dims();
+        let aesthetic_scores = Tensor::from_ints([6]).repeat(0, n_batch).unsqueeze().to_device(&size.device());
+
         (
             Tensor::cat(vec![clip_context, open_clip_context.clone()], 2).squeeze(0), 
             open_clip_context.squeeze(0), 
-            conditioning_embedding(pooled_text_embed, 256, size, crop, ar).squeeze(0),
+            conditioning_embedding(pooled_text_embed.clone(), 256, size.clone(), crop.clone(), ar).squeeze(0),
+            conditioning_embedding(pooled_text_embed, 256, size, crop, aesthetic_scores).squeeze(0),
         )
     }
 
@@ -577,15 +590,19 @@ impl<B: Backend> Embedder<B> {
         size: Tensor<B, 2, Int>,
         crop: Tensor<B, 2, Int>,
         ar: Tensor<B, 2, Int>,
-    ) -> (Tensor<B, 3>, Tensor<B, 3>, Tensor<B, 2>) {
+    ) -> (Tensor<B, 3>, Tensor<B, 3>, Tensor<B, 2>, Tensor<B, 2>) {
         let clip_context = text_to_context_clip(text, &self.clip, &self.clip_tokenizer);
         let (open_clip_context, pooled_text_embed) =
             text_to_context_open_clip(text, &self.open_clip, &self.open_clip_tokenizer);
 
+        let [n_batch, _] = ar.dims();
+        let aesthetic_scores = Tensor::from_ints([6]).repeat(0, n_batch).unsqueeze().to_device(&size.device());
+
         (
             Tensor::cat(vec![clip_context, open_clip_context.clone()], 2), 
             open_clip_context, 
-            conditioning_embedding(pooled_text_embed, 256, size, crop, ar),
+            conditioning_embedding(pooled_text_embed.clone(), 256, size.clone(), crop.clone(), ar),
+            conditioning_embedding(pooled_text_embed, 256, size, crop, aesthetic_scores), 
         )
     }
 }

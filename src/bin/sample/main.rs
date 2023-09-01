@@ -80,21 +80,25 @@ fn main() {
 
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 6 {
-        eprintln!("Usage: {} <model_name> <unconditional_guidance_scale> <n_diffusion_steps> <prompt> <output_image_name>", args[0]);
+        eprintln!("Usage: {} <model_name> <refiner(y/n)> <unconditional_guidance_scale> <n_diffusion_steps> <prompt> <output_image_name>", args[0]);
         process::exit(1);
     }
 
     let model_name = &args[1];
-    let unconditional_guidance_scale: f64 = args[2].parse().unwrap_or_else(|_| {
+    let use_refiner = match args[2].as_str() {
+        "y" => true, 
+        _ => false, 
+    };
+    let unconditional_guidance_scale: f64 = args[3].parse().unwrap_or_else(|_| {
         eprintln!("Error: Invalid unconditional guidance scale.");
         process::exit(1);
     });
-    let n_steps: usize = args[3].parse().unwrap_or_else(|_| {
+    let n_steps: usize = args[4].parse().unwrap_or_else(|_| {
         eprintln!("Error: Invalid number of diffusion steps.");
         process::exit(1);
     });
-    let prompt = &args[4];
-    let output_image_name = &args[5];
+    let prompt = &args[5];
+    let output_image_name = &args[6];
 
     let conditioning = {
         println!("Loading embedder...");
@@ -141,10 +145,25 @@ fn main() {
         let diffuser = diffuser.to_device(&device);
 
         println!("Running diffuser...");
-        diffuser.sample_latent(conditioning, unconditional_guidance_scale, n_steps)
+        diffuser.sample_latent(conditioning.clone(), unconditional_guidance_scale, n_steps)
+    };
+
+    let pre_refiner_latent = latent.clone();
+
+    let latent = if use_refiner {
+        println!("Loading refiner...");
+        let diffuser: Diffuser<Backend_f16> =
+            load_diffuser_model(&format!("{}/refiner", model_name)).unwrap();
+        let diffuser = diffuser.to_device(&device);
+
+        println!("Running refiner...");
+        diffuser.refine_latent(latent, conditioning, unconditional_guidance_scale, 500, n_steps)
+    } else {
+        latent
     };
 
     let latent = switch_backend::<Backend_f16, Backend, 4>(latent, &device);
+    let pre_refiner_latent = switch_backend::<Backend_f16, Backend, 4>(pre_refiner_latent, &device);
 
     let images = {
         println!("Loading latent decoder...");
@@ -156,9 +175,26 @@ fn main() {
         latent_decoder.latent_to_image(latent)
     };
 
+    let images_pre_refiner = {
+        println!("Loading latent decoder...");
+        let latent_decoder: LatentDecoder<Backend> =
+            load_latent_decoder_model(&format!("{}/latent_decoder", model_name)).unwrap();
+        let latent_decoder = latent_decoder.to_device(&device);
+
+        println!("Running decoder...");
+        latent_decoder.latent_to_image(pre_refiner_latent)
+    };
+
     println!("Saving images...");
     save_images(
         &images.buffer,
+        output_image_name,
+        images.width as u32,
+        images.height as u32,
+    )
+    .unwrap();
+    save_images(
+        &images_pre_refiner.buffer,
         output_image_name,
         images.width as u32,
         images.height as u32,

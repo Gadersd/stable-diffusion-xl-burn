@@ -6,7 +6,8 @@ Stable-Diffusion-XL-Burn is a Rust-based project which ports stable diffusion xl
 
 ### Step 1: Download the Model and Set Environment Variables
 
-The model files must be in burn's format. Eventually a python script will be provided to convert any SDXL model to burn's format. 
+The model files must be in burn's format.
+A later section explains how you can convert any SDXL model to burn's format.
 Start by downloading the pre-converted SDXL1.0 model files provided on HuggingFace.
 
 ```bash
@@ -35,6 +36,27 @@ cargo run --release --bin sample SDXL1.0 n 7.5 30 "An elegant bright red crab." 
 This command will generate an image according to the provided prompt, which will be saved as 'crab0.png'.
 
 ![An image of an ancient mossy stone](crab0.png)
+
+### Converting Model Files to Burn's Format
+
+The scripts in the python directory dump safetensor weights that can be converted to a format burn can load.
+Follow the instructions at https://github.com/Stability-AI/generative-models to install Stability AI's python SDXL repo.
+Then copy the scripts in the python diretory of this project into the `generative-models` folder and execute
+
+```bash
+python3 dump.py
+```
+
+A `params` folder will be created containing the dumped weights.
+Move the `params` folder to the root folder of this project and run
+
+```bash
+cargo run --release --bin convert params
+mkdir SDXL
+mv *.bin SDXL
+```
+Copy the .cfg files into the `SDXL` folder which can be downloaded with wget as shown in the download section.
+Now the models can be sampled as demonstrated above.
 
 ## License
 

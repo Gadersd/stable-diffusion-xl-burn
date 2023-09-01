@@ -113,11 +113,16 @@ fn main() {
     };
 
     let conditioning = Conditioning {
-        unconditional_context: switch_backend::<Backend, Backend_f16, 2>(
-            conditioning.unconditional_context,
+        unconditional_context_full: switch_backend::<Backend, Backend_f16, 2>(
+            conditioning.unconditional_context_full,
             &device,
         ),
-        context: switch_backend::<Backend, Backend_f16, 3>(conditioning.context, &device),
+        unconditional_context_open_clip: switch_backend::<Backend, Backend_f16, 2>(
+            conditioning.unconditional_context_open_clip,
+            &device,
+        ),
+        context_full: switch_backend::<Backend, Backend_f16, 3>(conditioning.context_full, &device),
+        context_open_clip: switch_backend::<Backend, Backend_f16, 3>(conditioning.context_open_clip, &device),
         unconditional_channel_context: switch_backend::<Backend, Backend_f16, 1>(
             conditioning.unconditional_channel_context,
             &device,

@@ -251,6 +251,7 @@ pub struct DiffuserConfig {
     num_head_channels: usize,
     transformer_depths: Vec<usize>, 
     context_dim: usize,
+    is_refiner: bool, 
 }
 
 impl DiffuserConfig {
@@ -270,10 +271,13 @@ impl DiffuserConfig {
         )
         .init();
 
+        let is_refiner = self.is_refiner;
+
         Diffuser {
-            n_steps,
-            alpha_cumulative_products,
-            diffusion,
+            n_steps, 
+            alpha_cumulative_products, 
+            diffusion, 
+            is_refiner, 
         }
     }
 }
@@ -283,6 +287,7 @@ pub struct Diffuser<B: Backend> {
     n_steps: usize,
     pub alpha_cumulative_products: Param<Tensor<B, 1>>,
     pub diffusion: UNet<B>,
+    is_refiner: bool, 
 }
 
 impl<B: Backend> Diffuser<B> {
@@ -292,11 +297,11 @@ impl<B: Backend> Diffuser<B> {
         unconditional_guidance_scale: f64,
         n_steps: usize,
     ) -> Tensor<B, 4> {
-        let device = conditioning.context.device();
+        let device = conditioning.context_full.device();
 
         let step_size = self.n_steps / n_steps;
 
-        let [n_batches, _, _] = conditioning.context.dims();
+        let [n_batches, _, _] = conditioning.context_full.dims();
         let [height, width] = conditioning.resolution;
 
         let gen_noise = || {
@@ -360,11 +365,19 @@ impl<B: Backend> Diffuser<B> {
         let [n_batch, _, _, _] = latent.dims();
         //let latent = latent.repeat(0, 2);
 
+        let full_context_dim = conditioning.unconditional_context_full.dims()[0];
+        let open_clip_context_dim = conditioning.unconditional_context_open_clip.dims()[0];
+
+        let (unconditional_context, context) = if !self.is_refiner {
+            (conditioning.unconditional_context_full, conditioning.context_full)
+        } else {
+            (conditioning.unconditional_context_open_clip, conditioning.context_open_clip)
+        };
+
         let unconditional_latent = self.diffusion.forward(
             latent.clone(),
             timestep.clone(),
-            conditioning
-                .unconditional_context
+            unconditional_context
                 .unsqueeze()
                 .repeat(0, n_batch),
             conditioning
@@ -376,7 +389,7 @@ impl<B: Backend> Diffuser<B> {
         let conditional_latent = self.diffusion.forward(
             latent,
             timestep,
-            conditioning.context,
+            context,
             conditioning.channel_context,
         );
 
@@ -396,8 +409,10 @@ impl<B: Backend> Diffuser<B> {
 
 #[derive(Clone, Debug)]
 pub struct Conditioning<B: Backend> {
-    pub unconditional_context: Tensor<B, 2>,
-    pub context: Tensor<B, 3>,
+    pub unconditional_context_full: Tensor<B, 2>,
+    pub unconditional_context_open_clip: Tensor<B, 2>,
+    pub context_full: Tensor<B, 3>,
+    pub context_open_clip: Tensor<B, 3>,
     pub unconditional_channel_context: Tensor<B, 1>,
     pub channel_context: Tensor<B, 2>,
     pub resolution: [usize; 2], // (height, width)
@@ -497,13 +512,15 @@ impl<B: Backend> Embedder<B> {
         ];
         let batched_ar = ar.unsqueeze().repeat(0, n_batch);
 
-        let (unconditional_context, unconditional_channel_context) =
+        let (unconditional_context_full, unconditional_context_open_clip, unconditional_channel_context) =
             self.unconditional_context(size.clone(), crop.clone(), batched_ar.clone());
-        let (context, channel_context) = self.context(text, size, crop, batched_ar);
+        let (context_full, context_open_clip, channel_context) = self.context(text, size, crop, batched_ar);
 
         Conditioning {
-            unconditional_context,
-            context,
+            unconditional_context_full,
+            unconditional_context_open_clip, 
+            context_full,
+            context_open_clip, 
             unconditional_channel_context,
             channel_context,
             resolution,
@@ -515,13 +532,14 @@ impl<B: Backend> Embedder<B> {
         size: Tensor<B, 2, Int>,
         crop: Tensor<B, 2, Int>,
         ar: Tensor<B, 2, Int>,
-    ) -> (Tensor<B, 2>, Tensor<B, 1>) {
+    ) -> (Tensor<B, 2>, Tensor<B, 2>, Tensor<B, 1>) {
         let clip_context = text_to_context_clip("", &self.clip, &self.clip_tokenizer);
         let (open_clip_context, pooled_text_embed) =
             text_to_context_open_clip("", &self.open_clip, &self.open_clip_tokenizer);
 
         (
-            Tensor::cat(vec![clip_context, open_clip_context], 2).squeeze(0),
+            Tensor::cat(vec![clip_context, open_clip_context.clone()], 2).squeeze(0), 
+            open_clip_context.squeeze(0), 
             conditioning_embedding(pooled_text_embed, 256, size, crop, ar).squeeze(0),
         )
     }
@@ -532,13 +550,14 @@ impl<B: Backend> Embedder<B> {
         size: Tensor<B, 2, Int>,
         crop: Tensor<B, 2, Int>,
         ar: Tensor<B, 2, Int>,
-    ) -> (Tensor<B, 3>, Tensor<B, 2>) {
+    ) -> (Tensor<B, 3>, Tensor<B, 3>, Tensor<B, 2>) {
         let clip_context = text_to_context_clip(text, &self.clip, &self.clip_tokenizer);
         let (open_clip_context, pooled_text_embed) =
             text_to_context_open_clip(text, &self.open_clip, &self.open_clip_tokenizer);
 
         (
-            Tensor::cat(vec![clip_context, open_clip_context], 2),
+            Tensor::cat(vec![clip_context, open_clip_context.clone()], 2), 
+            open_clip_context, 
             conditioning_embedding(pooled_text_embed, 256, size, crop, ar),
         )
     }

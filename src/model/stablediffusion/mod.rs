@@ -310,10 +310,11 @@ impl<B: Backend> Diffuser<B> {
         step_start: usize, 
         n_steps: usize,
     ) -> Tensor<B, 4> {
+        let t = self.n_steps - step_start; // last step is beginning of diffusion
         let start_alpha: f64 = self
                 .alpha_cumulative_products
                 .val()
-                .slice([step_start..step_start + 1])
+                .slice([t..t + 1])
                 .into_scalar()
                 .to_f64()
                 .unwrap();
@@ -342,7 +343,7 @@ impl<B: Backend> Diffuser<B> {
 
         let sigma = 0.0; // Use deterministic diffusion
 
-        for t in (0..self.n_steps).rev().step_by(step_size) {
+        for t in (step_start..self.n_steps).rev().step_by(step_size) {
             let current_alpha: f64 = self
                 .alpha_cumulative_products
                 .val()

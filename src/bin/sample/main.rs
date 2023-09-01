@@ -79,7 +79,7 @@ fn main() {
     let device = TchDevice::Cuda(0);
 
     let args: Vec<String> = std::env::args().collect();
-    if args.len() != 6 {
+    if args.len() != 7 {
         eprintln!("Usage: {} <model_name> <refiner(y/n)> <unconditional_guidance_scale> <n_diffusion_steps> <prompt> <output_image_name>", args[0]);
         process::exit(1);
     }
@@ -131,8 +131,16 @@ fn main() {
             conditioning.unconditional_channel_context,
             &device,
         ),
+        unconditional_channel_context_refiner: switch_backend::<Backend, Backend_f16, 1>(
+            conditioning.unconditional_channel_context_refiner,
+            &device,
+        ),
         channel_context: switch_backend::<Backend, Backend_f16, 2>(
             conditioning.channel_context,
+            &device,
+        ),
+        channel_context_refiner: switch_backend::<Backend, Backend_f16, 2>(
+            conditioning.channel_context_refiner,
             &device,
         ),
         resolution: conditioning.resolution,
@@ -148,8 +156,6 @@ fn main() {
         diffuser.sample_latent(conditioning.clone(), unconditional_guidance_scale, n_steps)
     };
 
-    let pre_refiner_latent = latent.clone();
-
     let latent = if use_refiner {
         println!("Loading refiner...");
         let diffuser: Diffuser<Backend_f16> =
@@ -157,13 +163,12 @@ fn main() {
         let diffuser = diffuser.to_device(&device);
 
         println!("Running refiner...");
-        diffuser.refine_latent(latent, conditioning, unconditional_guidance_scale, 500, n_steps)
+        diffuser.refine_latent(latent, conditioning, unconditional_guidance_scale, 800, n_steps)
     } else {
         latent
     };
 
     let latent = switch_backend::<Backend_f16, Backend, 4>(latent, &device);
-    let pre_refiner_latent = switch_backend::<Backend_f16, Backend, 4>(pre_refiner_latent, &device);
 
     let images = {
         println!("Loading latent decoder...");
@@ -175,26 +180,9 @@ fn main() {
         latent_decoder.latent_to_image(latent)
     };
 
-    let images_pre_refiner = {
-        println!("Loading latent decoder...");
-        let latent_decoder: LatentDecoder<Backend> =
-            load_latent_decoder_model(&format!("{}/latent_decoder", model_name)).unwrap();
-        let latent_decoder = latent_decoder.to_device(&device);
-
-        println!("Running decoder...");
-        latent_decoder.latent_to_image(pre_refiner_latent)
-    };
-
     println!("Saving images...");
     save_images(
         &images.buffer,
-        output_image_name,
-        images.width as u32,
-        images.height as u32,
-    )
-    .unwrap();
-    save_images(
-        &images_pre_refiner.buffer,
         output_image_name,
         images.width as u32,
         images.height as u32,

@@ -224,8 +224,16 @@ fn main() {
             conditioning.unconditional_channel_context,
             &device,
         ),
+        unconditional_channel_context_refiner: switch_backend::<Backend, Backend_f16, 1>(
+            conditioning.unconditional_channel_context_refiner,
+            &device,
+        ),
         channel_context: switch_backend::<Backend, Backend_f16, 2>(
             conditioning.channel_context,
+            &device,
+        ),
+        channel_context_refiner: switch_backend::<Backend, Backend_f16, 2>(
+            conditioning.channel_context_refiner,
             &device,
         ),
         resolution: conditioning.resolution,

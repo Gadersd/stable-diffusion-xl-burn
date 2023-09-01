@@ -297,24 +297,50 @@ impl<B: Backend> Diffuser<B> {
         unconditional_guidance_scale: f64,
         n_steps: usize,
     ) -> Tensor<B, 4> {
+        let latent = Self::gen_noise(&conditioning);
+
+        self.diffuse_latent(latent, conditioning, 0, n_steps, unconditional_guidance_scale)
+    }
+
+    pub fn refine_latent(
+        &self,
+        latent: Tensor<B, 4>, 
+        conditioning: Conditioning<B>,
+        unconditional_guidance_scale: f64,
+        step_start: usize, 
+        n_steps: usize,
+    ) -> Tensor<B, 4> {
+        let start_alpha: f64 = self
+                .alpha_cumulative_products
+                .val()
+                .slice([step_start..step_start + 1])
+                .into_scalar()
+                .to_f64()
+                .unwrap();
+
+        let noised_latent = latent * start_alpha.sqrt() + Self::gen_noise(&conditioning) * (1.0 - start_alpha).sqrt();
+
+        self.diffuse_latent(noised_latent, conditioning, step_start, n_steps, unconditional_guidance_scale)
+    }
+
+    fn gen_noise(conditioning: &Conditioning<B>) -> Tensor<B, 4> {
         let device = conditioning.context_full.device();
-
-        let step_size = self.n_steps / n_steps;
-
         let [n_batches, _, _] = conditioning.context_full.dims();
         let [height, width] = conditioning.resolution;
 
-        let gen_noise = || {
-            Tensor::random(
-                [n_batches, 4, height / 8, width / 8],
-                Distribution::Normal(0.0, 1.0),
-            )
-            .to_device(&device)
-        };
+        Tensor::random(
+            [n_batches, 4, height / 8, width / 8],
+            Distribution::Normal(0.0, 1.0),
+        )
+        .to_device(&device)
+    }
+
+    fn diffuse_latent(&self, mut latent: Tensor<B, 4>, conditioning: Conditioning<B>, step_start: usize, n_steps: usize, unconditional_guidance_scale: f64) -> Tensor<B, 4> {
+        let device = latent.device();
+
+        let step_size = self.n_steps / n_steps;
 
         let sigma = 0.0; // Use deterministic diffusion
-
-        let mut latent = gen_noise();
 
         for t in (0..self.n_steps).rev().step_by(step_size) {
             let current_alpha: f64 = self
@@ -348,7 +374,7 @@ impl<B: Backend> Diffuser<B> {
             let predx0 = (latent - pred_noise.clone() * sqrt_noise) / current_alpha.sqrt();
             let dir_latent = pred_noise * (1.0 - prev_alpha - sigma * sigma).sqrt();
 
-            let prev_latent = predx0 * prev_alpha.sqrt() + dir_latent + gen_noise() * sigma;
+            let prev_latent = predx0 * prev_alpha.sqrt() + dir_latent + Self::gen_noise(&conditioning) * sigma;
             latent = prev_latent;
         }
 

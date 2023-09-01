@@ -51,9 +51,10 @@ fn convert_diffuser_dump_to_model<B: Backend>(
     dump_path: &str,
     model_name: &str,
     device: &B::Device,
+    is_refiner: bool, 
 ) -> Result<(), Box<dyn Error>> {
     println!("Loading dump...");
-    let model: Diffuser<B> = load_diffuser(dump_path, device)?;
+    let model: Diffuser<B> = load_diffuser(dump_path, device, is_refiner)?;
 
     println!("Saving model...");
     save_model_file(model, model_name)?;
@@ -90,7 +91,7 @@ fn main() {
     }
 
     println!("Saving diffuser...");
-    match convert_diffuser_dump_to_model::<Backend>(&params, "diffuser", &device) {
+    match convert_diffuser_dump_to_model::<Backend>(&params, "diffuser", &device, false) {
         Ok(_) => (),
         Err(e) => {
             eprintln!("Error converting diffuser: {}", e);

@@ -16,6 +16,10 @@ wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.
 wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/embedder.cfg -P ./SDXL1.0/
 wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/latent_decoder.bin -P ./SDXL1.0/
 wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/latent_decoder.cfg -P ./SDXL1.0/
+
+# if you want to use the refiner
+wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/refiner.bin -P ./SDXL1.0/
+wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/refiner.cfg -P ./SDXL1.0/
 ```
 
 ### Step 2: Run the Sample Binary
@@ -24,8 +28,8 @@ Invoke the sample binary provided in the rust code. You will need a CUDA GPU wit
 
 ```bash
 export TORCH_CUDA_VERSION=cu113
-# Arguments: <model> <unconditional_guidance_scale> <n_diffusion_steps> <prompt> <output_image>
-cargo run --release --bin sample SDXL1.0 7.5 30 "An elegant bright red crab." crab
+# Arguments: <model> <refiner(y/n)> <unconditional_guidance_scale> <n_diffusion_steps> <prompt> <output_image>
+cargo run --release --bin sample SDXL1.0 n 7.5 30 "An elegant bright red crab." crab
 ```
 
 This command will generate an image according to the provided prompt, which will be saved as 'crab0.png'.

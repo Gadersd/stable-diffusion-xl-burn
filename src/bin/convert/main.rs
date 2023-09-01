@@ -99,6 +99,15 @@ fn main() {
         }
     }
 
+    println!("Saving refiner...");
+    match convert_diffuser_dump_to_model::<Backend>(&params, "refiner", &device, true) {
+        Ok(_) => (),
+        Err(e) => {
+            eprintln!("Error converting refiner: {}", e);
+            //std::process::exit(1);
+        }
+    }
+
     println!("Saving latent decoder...");
     match convert_latent_decoder_dump_to_model::<Backend>(&params, "latent_decoder", &device) {
         Ok(_) => (),

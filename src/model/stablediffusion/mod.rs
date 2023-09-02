@@ -413,11 +413,10 @@ impl<B: Backend> Diffuser<B> {
         unconditional_guidance_scale: f64,
     ) -> Tensor<B, 4> {
         let [n_batch, _, _, _] = latent.dims();
-        //let latent = latent.repeat(0, 2);
-
         let full_context_dim = conditioning.unconditional_context_full.dims()[0];
         let open_clip_context_dim = conditioning.unconditional_context_open_clip.dims()[0];
 
+        // grab the right contexts depending if refiner or not
         let (unconditional_context, context, unconditional_channel_context, channel_context) =
             if !self.is_refiner {
                 (
@@ -435,32 +434,24 @@ impl<B: Backend> Diffuser<B> {
                 )
             };
 
+        let conditional_latent = self
+            .diffusion
+            .forward(latent.clone(), timestep.clone(), context, channel_context);
+
+        // don't use guidance scaling for refiner
+        if self.is_refiner {
+            return conditional_latent;
+        }
+
         let unconditional_latent = self.diffusion.forward(
-            latent.clone(),
-            timestep.clone(),
+            latent,
+            timestep,
             unconditional_context.unsqueeze().repeat(0, n_batch),
             unconditional_channel_context.unsqueeze().repeat(0, n_batch),
         );
 
-        let conditional_latent = self
-            .diffusion
-            .forward(latent, timestep, context, channel_context);
-
-        /*let latent = self.diffusion.forward(
-            latent.repeat(0, 2),
-            timestep.repeat(0, 2),
-            Tensor::cat(vec![unconditional_context.unsqueeze::<3>(), context], 0)
-        );
-
-        let unconditional_latent = latent.clone().slice([0..n_batch]);
-        let conditional_latent = latent.slice([n_batch..2 * n_batch]);*/
-
-        if self.is_refiner {
-            conditional_latent
-        } else {
-            unconditional_latent.clone()
+        unconditional_latent.clone()
                 + (conditional_latent - unconditional_latent) * unconditional_guidance_scale
-        }
     }
 }
 
@@ -475,6 +466,24 @@ pub struct Conditioning<B: Backend> {
     pub channel_context: Tensor<B, 2>,
     pub channel_context_refiner: Tensor<B, 2>,
     pub resolution: [usize; 2], // (height, width)
+}
+
+use crate::backend_converter::BackendConverter;
+
+impl<B: Backend> Conditioning<B> {
+    pub fn convert<B2: Backend, BC: BackendConverter<B2>>(self, converter: BC, device: &B2::Device) -> Conditioning<B2> {
+        Conditioning {
+            unconditional_context_full: converter.convert(self.unconditional_context_full, device), 
+            unconditional_context_open_clip: converter.convert(self.unconditional_context_open_clip, device), 
+            context_full: converter.convert(self.context_full, device), 
+            context_open_clip: converter.convert(self.context_open_clip, device), 
+            unconditional_channel_context: converter.convert(self.unconditional_channel_context, device), 
+            unconditional_channel_context_refiner: converter.convert(self.unconditional_channel_context_refiner, device), 
+            channel_context: converter.convert(self.channel_context, device), 
+            channel_context_refiner: converter.convert(self.channel_context_refiner, device), 
+            resolution: self.resolution, 
+        }
+    }
 }
 
 /// These are the resolutions (height, width) Stable Diffusion XL was trained on.

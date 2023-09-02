@@ -58,19 +58,7 @@ use burn::tensor::ElementConversion;
 use num_traits::cast::ToPrimitive;
 use stablediffusion::model::stablediffusion::Conditioning;
 
-fn switch_backend<B1: Backend, B2: Backend, const D: usize>(
-    x: Tensor<B1, D>,
-    device: &B2::Device,
-) -> Tensor<B2, D> {
-    let data = x.into_data();
-
-    let data = tensor::Data::new(
-        data.value.into_iter().map(|v| v.elem()).collect(),
-        data.shape,
-    );
-
-    Tensor::from_data_device(data, device)
-}
+use stablediffusion::backend_converter::*;
 
 fn main() {
     type Backend = TchBackend<f32>;
@@ -116,38 +104,7 @@ fn main() {
         embedder.text_to_conditioning(prompt, size, crop, ar)
     };
 
-    let conditioning = Conditioning {
-        unconditional_context_full: switch_backend::<Backend, Backend_f16, 2>(
-            conditioning.unconditional_context_full,
-            &device,
-        ),
-        unconditional_context_open_clip: switch_backend::<Backend, Backend_f16, 2>(
-            conditioning.unconditional_context_open_clip,
-            &device,
-        ),
-        context_full: switch_backend::<Backend, Backend_f16, 3>(conditioning.context_full, &device),
-        context_open_clip: switch_backend::<Backend, Backend_f16, 3>(
-            conditioning.context_open_clip,
-            &device,
-        ),
-        unconditional_channel_context: switch_backend::<Backend, Backend_f16, 1>(
-            conditioning.unconditional_channel_context,
-            &device,
-        ),
-        unconditional_channel_context_refiner: switch_backend::<Backend, Backend_f16, 1>(
-            conditioning.unconditional_channel_context_refiner,
-            &device,
-        ),
-        channel_context: switch_backend::<Backend, Backend_f16, 2>(
-            conditioning.channel_context,
-            &device,
-        ),
-        channel_context_refiner: switch_backend::<Backend, Backend_f16, 2>(
-            conditioning.channel_context_refiner,
-            &device,
-        ),
-        resolution: conditioning.resolution,
-    };
+    let conditioning: Conditioning<Backend_f16> = conditioning.convert(DefaultBackendConverter::new(), &device);
 
     let latent = {
         println!("Loading diffuser...");
@@ -177,7 +134,7 @@ fn main() {
         latent
     };
 
-    let latent = switch_backend::<Backend_f16, Backend, 4>(latent, &device);
+    let latent: Tensor<Backend, 4> = DefaultBackendConverter::new().convert(latent, &device);
 
     let images = {
         println!("Loading latent decoder...");

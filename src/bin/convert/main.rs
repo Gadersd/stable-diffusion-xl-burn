@@ -51,7 +51,7 @@ fn convert_diffuser_dump_to_model<B: Backend>(
     dump_path: &str,
     model_name: &str,
     device: &B::Device,
-    is_refiner: bool, 
+    is_refiner: bool,
 ) -> Result<(), Box<dyn Error>> {
     println!("Loading dump...");
     let model: Diffuser<B> = load_diffuser(dump_path, device, is_refiner)?;

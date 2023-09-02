@@ -294,13 +294,17 @@ pub fn load_unet_blocks<B: Backend>(
             let block_path = format!("{}/{}", path, i);
             let block_type = fs::read_to_string(&format!("{}/type.txt", block_path))?;
             let b = match block_type.as_str() {
-                "conv" => UNetBlocks::Conv(load_conv2d::<B>(&block_path, device)?), 
-                "resnet" => UNetBlocks::Res(load_res_block::<B>(&block_path, device)?), 
-                "downsample" => UNetBlocks::Down(load_downsample::<B>(&block_path, device)?), 
-                "resnet_transformer" => UNetBlocks::ResT(load_res_transformer::<B>(&block_path, device)?), 
-                "resnet_transformer_upsample" => UNetBlocks::ResTU(load_res_transformer_upsample::<B>(&block_path, device)?), 
-                "resnet_upsample" => UNetBlocks::ResU(load_res_upsample::<B>(&block_path, device)?), 
-                _ => panic!("Invalid type."), 
+                "conv" => UNetBlocks::Conv(load_conv2d::<B>(&block_path, device)?),
+                "resnet" => UNetBlocks::Res(load_res_block::<B>(&block_path, device)?),
+                "downsample" => UNetBlocks::Down(load_downsample::<B>(&block_path, device)?),
+                "resnet_transformer" => {
+                    UNetBlocks::ResT(load_res_transformer::<B>(&block_path, device)?)
+                }
+                "resnet_transformer_upsample" => {
+                    UNetBlocks::ResTU(load_res_transformer_upsample::<B>(&block_path, device)?)
+                }
+                "resnet_upsample" => UNetBlocks::ResU(load_res_upsample::<B>(&block_path, device)?),
+                _ => panic!("Invalid type."),
             };
             Ok(b)
         })
@@ -369,14 +373,12 @@ pub fn load_unet<B: Backend>(path: &str, device: &B::Device) -> Result<UNet<B>, 
     let lin1_label_embed = load_linear::<B>(&format!("{}/{}", path, "lin1_label_embed"), device)?;
     let silu_label_embed = SILU::new(); // Assuming SILU::new() initializes a new SILU struct
     let lin2_label_embed = load_linear::<B>(&format!("{}/{}", path, "lin2_label_embed"), device)?;
-    let input_blocks =
-        load_unet_blocks::<B>(&format!("{}/{}", path, "input_blocks"), device)?;
-        //load_unet_input_blocks::<B>(&format!("{}/{}", path, "input_blocks"), device)?;
+    let input_blocks = load_unet_blocks::<B>(&format!("{}/{}", path, "input_blocks"), device)?;
+    //load_unet_input_blocks::<B>(&format!("{}/{}", path, "input_blocks"), device)?;
     let middle_block =
         load_res_transformer_res::<B>(&format!("{}/{}", path, "middle_block"), device)?;
-    let output_blocks =
-        load_unet_blocks::<B>(&format!("{}/{}", path, "output_blocks"), device)?;
-        //load_unet_output_blocks::<B>(&format!("{}/{}", path, "output_blocks"), device)?;
+    let output_blocks = load_unet_blocks::<B>(&format!("{}/{}", path, "output_blocks"), device)?;
+    //load_unet_output_blocks::<B>(&format!("{}/{}", path, "output_blocks"), device)?;
     let norm_out = load_group_norm::<B>(&format!("{}/{}", path, "norm_out"), device)?;
     let silu_out = SILU::new(); // Assuming SILU::new() initializes a new SILU struct
     let conv_out = load_conv2d::<B>(&format!("{}/{}", path, "conv_out"), device)?;

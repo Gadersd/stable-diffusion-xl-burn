@@ -51,18 +51,22 @@ pub fn load_embedder<B: Backend>(
 pub fn load_diffuser<B: Backend>(
     path: &str,
     device: &B::Device,
-    is_refiner: bool, 
+    is_refiner: bool,
 ) -> Result<Diffuser<B>, Box<dyn Error>> {
     let n_steps = load_usize::<B>("n_steps", path, device)?;
     let alpha_cumulative_products = load_tensor::<B, 1>("alphas_cumprod", path, device)?.into();
-    let name = if is_refiner {"diffuser_refiner"} else {"diffuser_base"};
+    let name = if is_refiner {
+        "diffuser_refiner"
+    } else {
+        "diffuser_base"
+    };
     let diffusion = load_unet(&format!("{}/{}", path, name), device)?;
 
     Ok(Diffuser {
         n_steps,
         alpha_cumulative_products,
         diffusion,
-        is_refiner, 
+        is_refiner,
     })
 }
 

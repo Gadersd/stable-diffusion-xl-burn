@@ -86,8 +86,8 @@ fn main() {
 
     let model_name = &args[1];
     let use_refiner = match args[2].as_str() {
-        "y" => true, 
-        _ => false, 
+        "y" => true,
+        _ => false,
     };
     let unconditional_guidance_scale: f64 = args[3].parse().unwrap_or_else(|_| {
         eprintln!("Error: Invalid unconditional guidance scale.");
@@ -126,7 +126,10 @@ fn main() {
             &device,
         ),
         context_full: switch_backend::<Backend, Backend_f16, 3>(conditioning.context_full, &device),
-        context_open_clip: switch_backend::<Backend, Backend_f16, 3>(conditioning.context_open_clip, &device),
+        context_open_clip: switch_backend::<Backend, Backend_f16, 3>(
+            conditioning.context_open_clip,
+            &device,
+        ),
         unconditional_channel_context: switch_backend::<Backend, Backend_f16, 1>(
             conditioning.unconditional_channel_context,
             &device,
@@ -163,7 +166,13 @@ fn main() {
         let diffuser = diffuser.to_device(&device);
 
         println!("Running refiner...");
-        diffuser.refine_latent(latent, conditioning, unconditional_guidance_scale, 800, n_steps)
+        diffuser.refine_latent(
+            latent,
+            conditioning,
+            unconditional_guidance_scale,
+            800,
+            n_steps,
+        )
     } else {
         latent
     };

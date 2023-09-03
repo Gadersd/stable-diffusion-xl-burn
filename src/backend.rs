@@ -1,46 +1,84 @@
-use burn::{
-    tensor::{Tensor, activation::softmax},
-};
+use burn::tensor::{activation::softmax, Tensor};
 
 pub trait Backend: burn::tensor::backend::Backend {
-    fn qkv_attention(q: Self::TensorPrimitive<3>,
+    fn qkv_attention(
+        q: Self::TensorPrimitive<3>,
         k: Self::TensorPrimitive<3>,
         v: Self::TensorPrimitive<3>,
         mask: Option<Self::TensorPrimitive<2>>,
-        n_head: usize,) -> Self::TensorPrimitive<3> {
-            qkv_attention(Tensor::<Self, 3>::from_primitive(q), Tensor::from_primitive(k), Tensor::from_primitive(v), mask.map(|m| Tensor::from_primitive(m)), n_head).into_primitive()
-        }
+        n_head: usize,
+    ) -> Self::TensorPrimitive<3> {
+        qkv_attention(
+            Tensor::<Self, 3>::from_primitive(q),
+            Tensor::from_primitive(k),
+            Tensor::from_primitive(v),
+            mask.map(|m| Tensor::from_primitive(m)),
+            n_head,
+        )
+        .into_primitive()
+    }
 
     fn attn_decoder_mask(seq_length: usize, device: &Self::Device) -> Self::TensorPrimitive<2> {
         attn_decoder_mask::<Self>(seq_length, device).into_primitive()
     }
 }
 
+use burn::tensor::ops::TensorOps;
+use burn::tensor::Float;
 use burn_tch::{self, TchElement, TchTensor};
 use tch;
 
 impl<E: TchElement> Backend for burn_tch::TchBackend<E> {
-    fn qkv_attention(q: Self::TensorPrimitive<3>,
+    fn qkv_attention(
+        q: Self::TensorPrimitive<3>,
         k: Self::TensorPrimitive<3>,
         v: Self::TensorPrimitive<3>,
         mask: Option<Self::TensorPrimitive<2>>,
-        n_head: usize,) -> Self::TensorPrimitive<3> {
-            TchTensor::new(tch::Tensor::scaled_dot_product_attention(
+        n_head: usize,
+    ) -> Self::TensorPrimitive<3> {
+        let [n_batch, q_ctx, n_state] = Self::shape(&q).dims;
+        let [_, k_ctx, _] = Self::shape(&k).dims;
+        let n_hstate = n_state / n_head;
+
+        let rearrange = |t| {
+            let t = Tensor::<Self, 3>::from_primitive(t);
+            let [_, n_ctx, _] = t.shape().dims;
+            t.reshape([n_batch, n_ctx, n_head, n_hstate])
+                .swap_dims(1, 2)
+                .into_primitive()
+        };
+
+        let q: TchTensor<E, 4> = rearrange(q);
+        let k = rearrange(k);
+        let v = rearrange(v);
+
+        // for some reason torch crashes when mask is None
+        let mask = mask.unwrap_or_else(|| {
+            Tensor::<Self, 2, Float>::zeros_device([q_ctx, k_ctx], &Self::device(&v))
+                .into_primitive()
+        });
+
+        Tensor::<Self, 4>::from_primitive(TchTensor::new(
+            tch::Tensor::scaled_dot_product_attention(
                 &q.tensor,
                 &k.tensor,
                 &v.tensor,
-                mask.map(|m| m.tensor),
+                Some(mask.tensor),
                 0.0,
-                false
-            ))
-        }
- }
+                false,
+            ),
+        ))
+        .swap_dims(1, 2)
+        .flatten(2, 3)
+        .into_primitive()
+    }
+}
 
 use burn_autodiff;
 
 impl<B: Backend> Backend for burn_autodiff::ADBackendDecorator<B> {}
 
- use std::f32::NEG_INFINITY;
+use std::f32::NEG_INFINITY;
 
 fn qkv_attention<B: Backend>(
     q: Tensor<B, 3>,

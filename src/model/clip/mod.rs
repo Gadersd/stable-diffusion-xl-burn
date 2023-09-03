@@ -8,12 +8,13 @@ use burn::{
     nn,
     tensor::{
         activation::{sigmoid, softmax},
+        backend::Backend,
         module::embedding,
         Distribution, Int, Tensor,
     },
 };
 
-use crate::backend::Backend;
+use crate::backend::Backend as MyBackend;
 
 #[derive(Config, Debug)]
 pub struct CLIPConfig {
@@ -66,7 +67,7 @@ pub struct CLIP<B: Backend> {
     text_projection: Option<Param<Tensor<B, 2>>>,
 }
 
-impl<B: Backend> CLIP<B> {
+impl<B: MyBackend> CLIP<B> {
     /*pub fn forward(&self, x: Tensor<B, 2, Int>) -> Tensor<B, 3> {
         let [n_batch, seq_len] = x.dims();
 
@@ -189,7 +190,7 @@ pub struct ResidualDecoderAttentionBlock<B: Backend> {
     mlp_ln: LayerNorm<B>,
 }
 
-impl<B: Backend> ResidualDecoderAttentionBlock<B> {
+impl<B: MyBackend> ResidualDecoderAttentionBlock<B> {
     fn forward(&self, x: Tensor<B, 3>, mask: Tensor<B, 2>) -> Tensor<B, 3> {
         let x = x.clone() + self.attn.forward(self.attn_ln.forward(x), Some(mask));
         let x = x.clone() + self.mlp.forward(self.mlp_ln.forward(x));
@@ -237,13 +238,19 @@ pub struct MultiHeadSelfAttention<B: Backend> {
     out: nn::Linear<B>,
 }
 
-impl<B: Backend> MultiHeadSelfAttention<B> {
+impl<B: MyBackend> MultiHeadSelfAttention<B> {
     pub fn forward(&self, x: Tensor<B, 3>, mask: Option<Tensor<B, 2>>) -> Tensor<B, 3> {
         let q = self.query.forward(x.clone());
         let k = self.key.forward(x.clone());
         let v = self.value.forward(x);
 
-        let wv = Tensor::from_primitive(B::qkv_attention(q.into_primitive(), k.into_primitive(), v.into_primitive(), mask, self.n_head));
+        let wv = Tensor::from_primitive(B::qkv_attention(
+            q.into_primitive(),
+            k.into_primitive(),
+            v.into_primitive(),
+            mask.map(|m| m.into_primitive()),
+            self.n_head,
+        ));
 
         return self.out.forward(wv);
     }

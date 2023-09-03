@@ -3,15 +3,15 @@ pub mod load;
 use burn::{
     config::Config,
     module::{Module, Param},
-    tensor::{BasicOps, Data, Distribution, Float, Int, Tensor},
+    tensor::{backend::Backend, BasicOps, Data, Distribution, Float, Int, Tensor},
 };
 
 use num_traits::ToPrimitive;
 
-use crate::backend::Backend;
 use super::autoencoder::{Autoencoder, AutoencoderConfig};
 use super::clip::{CLIPConfig, CLIP};
 use super::unet::{conditioning_embedding, UNet, UNetConfig};
+use crate::backend::Backend as MyBackend;
 use crate::token::{clip::SimpleTokenizer, open_clip::OpenClipTokenizer, Tokenizer};
 
 /*#[derive(Config)]
@@ -194,7 +194,7 @@ pub struct LatentDecoder<B: Backend> {
     scale_factor: f64,
 }
 
-impl<B: Backend> LatentDecoder<B> {
+impl<B: MyBackend> LatentDecoder<B> {
     pub fn latent_to_image(&self, latent: Tensor<B, 4>) -> RawImages {
         let [n_batch, _, latent_height, latent_width] = latent.dims();
         let image = self.decode_latent(latent);
@@ -291,7 +291,7 @@ pub struct Diffuser<B: Backend> {
     is_refiner: bool,
 }
 
-impl<B: Backend> Diffuser<B> {
+impl<B: MyBackend> Diffuser<B> {
     pub fn sample_latent(
         &self,
         conditioning: Conditioning<B>,
@@ -435,9 +435,9 @@ impl<B: Backend> Diffuser<B> {
                 )
             };
 
-        let conditional_latent = self
-            .diffusion
-            .forward(latent.clone(), timestep.clone(), context, channel_context);
+        let conditional_latent =
+            self.diffusion
+                .forward(latent.clone(), timestep.clone(), context, channel_context);
 
         // don't use guidance scaling for refiner
         if self.is_refiner {
@@ -452,7 +452,7 @@ impl<B: Backend> Diffuser<B> {
         );
 
         unconditional_latent.clone()
-                + (conditional_latent - unconditional_latent) * unconditional_guidance_scale
+            + (conditional_latent - unconditional_latent) * unconditional_guidance_scale
     }
 }
 
@@ -472,17 +472,24 @@ pub struct Conditioning<B: Backend> {
 use crate::backend_converter::BackendConverter;
 
 impl<B: Backend> Conditioning<B> {
-    pub fn convert<B2: Backend, BC: BackendConverter<B2>>(self, converter: BC, device: &B2::Device) -> Conditioning<B2> {
+    pub fn convert<B2: Backend, BC: BackendConverter<B2>>(
+        self,
+        converter: BC,
+        device: &B2::Device,
+    ) -> Conditioning<B2> {
         Conditioning {
-            unconditional_context_full: converter.convert(self.unconditional_context_full, device), 
-            unconditional_context_open_clip: converter.convert(self.unconditional_context_open_clip, device), 
-            context_full: converter.convert(self.context_full, device), 
-            context_open_clip: converter.convert(self.context_open_clip, device), 
-            unconditional_channel_context: converter.convert(self.unconditional_channel_context, device), 
-            unconditional_channel_context_refiner: converter.convert(self.unconditional_channel_context_refiner, device), 
-            channel_context: converter.convert(self.channel_context, device), 
-            channel_context_refiner: converter.convert(self.channel_context_refiner, device), 
-            resolution: self.resolution, 
+            unconditional_context_full: converter.convert(self.unconditional_context_full, device),
+            unconditional_context_open_clip: converter
+                .convert(self.unconditional_context_open_clip, device),
+            context_full: converter.convert(self.context_full, device),
+            context_open_clip: converter.convert(self.context_open_clip, device),
+            unconditional_channel_context: converter
+                .convert(self.unconditional_channel_context, device),
+            unconditional_channel_context_refiner: converter
+                .convert(self.unconditional_channel_context_refiner, device),
+            channel_context: converter.convert(self.channel_context, device),
+            channel_context_refiner: converter.convert(self.channel_context_refiner, device),
+            resolution: self.resolution,
         }
     }
 }
@@ -565,7 +572,7 @@ pub struct Embedder<B: Backend> {
     open_clip_tokenizer: OpenClipTokenizer,
 }
 
-impl<B: Backend> Embedder<B> {
+impl<B: MyBackend> Embedder<B> {
     pub fn text_to_conditioning(
         &self,
         text: &str,
@@ -666,7 +673,7 @@ impl<B: Backend> Embedder<B> {
     }
 }
 
-pub fn text_to_context_clip<B: Backend, T: Tokenizer>(
+pub fn text_to_context_clip<B: MyBackend, T: Tokenizer>(
     text: &str,
     clip: &CLIP<B>,
     tokenizer: &T,
@@ -679,7 +686,7 @@ pub fn text_to_context_clip<B: Backend, T: Tokenizer>(
     clip.forward_hidden(tokens, n_layers - 1) // penultimate layer
 }
 
-pub fn text_to_context_open_clip<B: Backend, T: Tokenizer>(
+pub fn text_to_context_open_clip<B: MyBackend, T: Tokenizer>(
     text: &str,
     clip: &CLIP<B>,
     tokenizer: &T,

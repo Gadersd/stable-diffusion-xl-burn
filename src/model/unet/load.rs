@@ -7,11 +7,10 @@ use burn::{
     config::Config,
     module::{Module, Param},
     nn,
-    tensor::{Tensor},
+    tensor::{backend::Backend, Tensor},
 };
 
 use super::*;
-use crate::backend::Backend;
 use crate::model::groupnorm::load::load_group_norm;
 use crate::model::layernorm::load::load_layer_norm;
 

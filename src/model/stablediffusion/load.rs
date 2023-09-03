@@ -5,11 +5,10 @@ use burn::{
     config::Config,
     module::{Module, Param},
     nn,
-    tensor::{Tensor},
+    tensor::{backend::Backend, Tensor},
 };
 
 use super::*;
-use crate::backend::Backend;
 use crate::model::{
     autoencoder::load::load_autoencoder, clip::load::load_clip_text_transformer, load::*,
     unet::load::load_unet,

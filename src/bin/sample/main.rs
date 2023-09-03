@@ -106,7 +106,8 @@ fn main() {
         embedder.text_to_conditioning(prompt, size, crop, ar)
     };
 
-    let conditioning: Conditioning<Backend_f16> = conditioning.convert(DefaultBackendConverter::new(), &device);
+    let conditioning: Conditioning<Backend_f16> =
+        conditioning.convert(DefaultBackendConverter::new(), &device);
 
     let latent = {
         println!("Loading diffuser...");

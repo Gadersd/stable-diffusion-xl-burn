@@ -10,6 +10,7 @@ use burn::{
     },
     tensor::{
         activation::{sigmoid, softmax},
+        backend::Backend,
         module::embedding,
         Distribution, Int, Tensor,
     },
@@ -17,9 +18,9 @@ use burn::{
 
 use crate::helper::div_roundup;
 
-use crate::backend::Backend;
 use super::groupnorm::*;
 use super::silu::*;
+use crate::backend::Backend as MyBackend;
 
 use std::iter;
 
@@ -52,7 +53,7 @@ pub struct Autoencoder<B: Backend> {
     post_quant_conv: Conv2d<B>,
 }
 
-impl<B: Backend> Autoencoder<B> {
+impl<B: MyBackend> Autoencoder<B> {
     pub fn forward(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
         self.decode_latent(self.encode_image(x))
     }
@@ -129,7 +130,7 @@ pub struct Encoder<B: Backend> {
     conv_out: Conv2d<B>,
 }
 
-impl<B: Backend> Encoder<B> {
+impl<B: MyBackend> Encoder<B> {
     pub fn forward(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
         let x = self.conv_in.forward(x);
 
@@ -201,7 +202,7 @@ pub struct Decoder<B: Backend> {
     conv_out: Conv2d<B>,
 }
 
-impl<B: Backend> Decoder<B> {
+impl<B: MyBackend> Decoder<B> {
     pub fn forward(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
         let x = self.conv_in.forward(x);
         let x = self.mid.forward(x);
@@ -253,7 +254,7 @@ pub struct EncoderBlock<B: Backend> {
     downsampler: Option<PaddedConv2d<B>>,
 }
 
-impl<B: Backend> EncoderBlock<B> {
+impl<B: MyBackend> EncoderBlock<B> {
     fn forward(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
         let x = self.res1.forward(x);
         let x = self.res2.forward(x);
@@ -304,7 +305,7 @@ pub struct DecoderBlock<B: Backend> {
     upsampler: Option<Conv2d<B>>,
 }
 
-impl<B: Backend> DecoderBlock<B> {
+impl<B: MyBackend> DecoderBlock<B> {
     fn forward(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
         let x = self.res1.forward(x);
         let x = self.res2.forward(x);
@@ -437,7 +438,7 @@ pub struct Mid<B: Backend> {
     block_2: ResnetBlock<B>,
 }
 
-impl<B: Backend> Mid<B> {
+impl<B: MyBackend> Mid<B> {
     fn forward(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
         let x = self.block_1.forward(x);
         let x = self.attn.forward(x);
@@ -494,7 +495,7 @@ pub struct ResnetBlock<B: Backend> {
     nin_shortcut: Option<Conv2d<B>>,
 }
 
-impl<B: Backend> ResnetBlock<B> {
+impl<B: MyBackend> ResnetBlock<B> {
     fn forward(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
         let h = self
             .conv1
@@ -543,7 +544,7 @@ pub struct ConvSelfAttentionBlock<B: Backend> {
     proj_out: Conv2d<B>,
 }
 
-impl<B: Backend> ConvSelfAttentionBlock<B> {
+impl<B: MyBackend> ConvSelfAttentionBlock<B> {
     fn forward(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
         let [n_batch, n_channel, height, width] = x.dims();
 
@@ -565,9 +566,15 @@ impl<B: Backend> ConvSelfAttentionBlock<B> {
             .reshape([n_batch, n_channel, height * width])
             .swap_dims(1, 2);
 
-        let wv = Tensor::from_primitive(B::qkv_attention(q.into_primitive(), k.into_primitive(), v.into_primitive(), None, 1))
-            .swap_dims(1, 2)
-            .reshape([n_batch, n_channel, height, width]);
+        let wv = Tensor::from_primitive(B::qkv_attention(
+            q.into_primitive(),
+            k.into_primitive(),
+            v.into_primitive(),
+            None,
+            1,
+        ))
+        .swap_dims(1, 2)
+        .reshape([n_batch, n_channel, height, width]);
 
         let projected = self.proj_out.forward(wv);
 

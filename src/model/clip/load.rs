@@ -5,12 +5,13 @@ use burn::{
     config::Config,
     module::{Module, Param},
     nn,
-    tensor::{backend::Backend, Tensor},
+    tensor::{Tensor},
 };
 
 use super::*;
 use crate::model::layernorm::load::load_layer_norm;
 use crate::model::load::*;
+use crate::backend::Backend;
 
 pub fn load_mlp<B: Backend>(
     path: &str,

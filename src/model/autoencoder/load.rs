@@ -7,10 +7,11 @@ use burn::{
     config::Config,
     module::{Module, Param},
     nn,
-    tensor::{backend::Backend, Tensor},
+    tensor::{Tensor},
 };
 
 use super::*;
+use crate::backend::Backend;
 use crate::model::groupnorm::load::load_group_norm;
 
 fn load_conv_self_attention_block<B: Backend>(

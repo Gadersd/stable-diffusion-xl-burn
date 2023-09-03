@@ -3,11 +3,12 @@ pub mod load;
 use burn::{
     config::Config,
     module::{Module, Param},
-    tensor::{backend::Backend, BasicOps, Data, Distribution, Float, Int, Tensor},
+    tensor::{BasicOps, Data, Distribution, Float, Int, Tensor},
 };
 
 use num_traits::ToPrimitive;
 
+use crate::backend::Backend;
 use super::autoencoder::{Autoencoder, AutoencoderConfig};
 use super::clip::{CLIPConfig, CLIP};
 use super::unet::{conditioning_embedding, UNet, UNetConfig};

@@ -8,12 +8,14 @@ use burn::{
         conv::{Conv2d, Conv2dConfig},
         PaddingConfig2d, GELU,
     },
-    tensor::{activation::softmax, backend::Backend, module::embedding, Distribution, Int, Tensor},
+    tensor::{activation::softmax, module::embedding, Distribution, Int, Tensor},
 };
 
-use super::attention::qkv_attention;
+use burn::tensor::backend::Backend;
+
 use super::groupnorm::*;
 use super::silu::*;
+use crate::backend::Backend as MyBackend;
 use crate::helper::to_float;
 use crate::model::layernorm::{LayerNorm, LayerNormConfig};
 
@@ -67,7 +69,7 @@ pub struct UNetConfig {
 }
 
 impl UNetConfig {
-    pub fn init<B: Backend>(&self) -> UNet<B> {
+    pub fn init<B: MyBackend>(&self) -> UNet<B> {
         assert!(
             self.model_channels % self.n_head_channels == 0,
             "The number of head channels must evenly divide the model channels."
@@ -428,7 +430,7 @@ impl UNetConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct UNet<B: Backend> {
+pub struct UNet<B: MyBackend> {
     model_channels: usize,
     lin1_time_embed: nn::Linear<B>,
     silu_time_embed: SILU,
@@ -444,7 +446,7 @@ pub struct UNet<B: Backend> {
     conv_out: Conv2d<B>,
 }
 
-impl<B: Backend> UNet<B> {
+impl<B: MyBackend> UNet<B> {
     pub fn forward(
         &self,
         x: Tensor<B, 4>,
@@ -526,7 +528,7 @@ enum UNetBlockInnerModule<B: ADBackend> {
 use burn::module::ADModule;
 use burn::tensor::backend::ADBackend;
 
-impl<B: ADBackend> ADModule<B> for UNetBlocks<B> {
+/*impl<B: ADBackend> ADModule<B> for UNetBlocks<B> {
     type InnerModule = UNetBlocks<<B as ADBackend>::InnerBackend>;
 
     // Required method
@@ -540,12 +542,12 @@ impl<B: ADBackend> ADModule<B> for UNetBlocks<B> {
             UNetBlocks::ResU(b) => UNetBlocks::ResU(b.valid()),
         }
     }
-}
+}*/
 
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug)]
-pub enum UNetBlockRecord<B: Backend> {
+pub enum UNetBlockRecord<B: MyBackend> {
     Conv(<Conv2d<B> as Module<B>>::Record),
     Res(<ResBlock<B> as Module<B>>::Record),
     Down(<Downsample<B> as Module<B>>::Record),
@@ -556,7 +558,7 @@ pub enum UNetBlockRecord<B: Backend> {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(bound = "")]
-pub enum UNetBlockRecordItem<B: Backend, S: PrecisionSettings> {
+pub enum UNetBlockRecordItem<B: MyBackend, S: PrecisionSettings> {
     Conv(<<Conv2d<B> as Module<B>>::Record as Record>::Item<S>),
     Res(<<ResBlock<B> as Module<B>>::Record as Record>::Item<S>),
     Down(<<Downsample<B> as Module<B>>::Record as Record>::Item<S>),
@@ -569,7 +571,7 @@ use burn::module::ModuleVisitor;
 use burn::record::PrecisionSettings;
 use burn::record::Record;
 
-impl<B: Backend> Record for UNetBlockRecord<B> {
+impl<B: MyBackend> Record for UNetBlockRecord<B> {
     type Item<S: PrecisionSettings> = UNetBlockRecordItem<B, S>;
 
     // Required methods
@@ -615,7 +617,7 @@ impl<B: Backend> Record for UNetBlockRecord<B> {
 
 use burn::module::ModuleMapper;
 
-impl<B: Backend> Module<B> for UNetBlocks<B> {
+impl<B: MyBackend> Module<B> for UNetBlocks<B> {
     type Record = UNetBlockRecord<B>;
 
     // Required methods
@@ -777,7 +779,7 @@ impl<B: Backend> Module<B> for UNetBlocks<B> {
     }
 }
 
-impl<B: Backend> UNetBlocks<B> {
+impl<B: MyBackend> UNetBlocks<B> {
     fn as_ref(&self) -> &dyn UNetBlock<B> {
         match self {
             UNetBlocks::Conv(b) => b,
@@ -805,7 +807,7 @@ pub struct ResTransformerConfig {
 }
 
 impl ResTransformerConfig {
-    fn init<B: Backend>(&self) -> ResTransformer<B> {
+    fn init<B: MyBackend>(&self) -> ResTransformer<B> {
         let res = ResBlockConfig::new(
             self.n_channels_in,
             self.n_channels_embed,
@@ -825,12 +827,12 @@ impl ResTransformerConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct ResTransformer<B: Backend> {
+pub struct ResTransformer<B: MyBackend> {
     res: ResBlock<B>,
     transformer: SpatialTransformer<B>,
 }
 
-impl<B: Backend> UNetBlock<B> for ResTransformer<B> {
+impl<B: MyBackend> UNetBlock<B> for ResTransformer<B> {
     fn forward(&self, x: Tensor<B, 4>, emb: Tensor<B, 2>, context: Tensor<B, 3>) -> Tensor<B, 4> {
         let x = self.res.forward(x, emb);
         let x = self.transformer.forward(x, context);
@@ -885,7 +887,7 @@ pub struct ResTransformerUpsampleConfig {
 }
 
 impl ResTransformerUpsampleConfig {
-    fn init<B: Backend>(&self) -> ResTransformerUpsample<B> {
+    fn init<B: MyBackend>(&self) -> ResTransformerUpsample<B> {
         let res = ResBlockConfig::new(
             self.n_channels_in,
             self.n_channels_embed,
@@ -910,13 +912,13 @@ impl ResTransformerUpsampleConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct ResTransformerUpsample<B: Backend> {
+pub struct ResTransformerUpsample<B: MyBackend> {
     res: ResBlock<B>,
     transformer: SpatialTransformer<B>,
     upsample: Upsample<B>,
 }
 
-impl<B: Backend> UNetBlock<B> for ResTransformerUpsample<B> {
+impl<B: MyBackend> UNetBlock<B> for ResTransformerUpsample<B> {
     fn forward(&self, x: Tensor<B, 4>, emb: Tensor<B, 2>, context: Tensor<B, 3>) -> Tensor<B, 4> {
         let x = self.res.forward(x, emb);
         let x = self.transformer.forward(x, context);
@@ -936,7 +938,7 @@ pub struct ResTransformerResConfig {
 }
 
 impl ResTransformerResConfig {
-    fn init<B: Backend>(&self) -> ResTransformerRes<B> {
+    fn init<B: MyBackend>(&self) -> ResTransformerRes<B> {
         let res1 = ResBlockConfig::new(
             self.n_channels_in,
             self.n_channels_embed,
@@ -966,13 +968,13 @@ impl ResTransformerResConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct ResTransformerRes<B: Backend> {
+pub struct ResTransformerRes<B: MyBackend> {
     res1: ResBlock<B>,
     transformer: SpatialTransformer<B>,
     res2: ResBlock<B>,
 }
 
-impl<B: Backend> UNetBlock<B> for ResTransformerRes<B> {
+impl<B: MyBackend> UNetBlock<B> for ResTransformerRes<B> {
     fn forward(&self, x: Tensor<B, 4>, emb: Tensor<B, 2>, context: Tensor<B, 3>) -> Tensor<B, 4> {
         let x = self.res1.forward(x, emb.clone());
         let x = self.transformer.forward(x, context);
@@ -1050,7 +1052,7 @@ pub struct SpatialTransformerConfig {
 }
 
 impl SpatialTransformerConfig {
-    fn init<B: Backend>(&self) -> SpatialTransformer<B> {
+    fn init<B: MyBackend>(&self) -> SpatialTransformer<B> {
         let norm = GroupNormConfig::new(32, self.n_channels).init();
         let proj_in = nn::LinearConfig::new(self.n_channels, self.n_channels).init(); //Conv2dConfig::new([self.n_channels, self.n_channels], [1, 1]).init();
         let blocks = (0..self.n_blocks)
@@ -1072,14 +1074,14 @@ impl SpatialTransformerConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct SpatialTransformer<B: Backend> {
+pub struct SpatialTransformer<B: MyBackend> {
     norm: GroupNorm<B>,
     proj_in: nn::Linear<B>,
     blocks: Vec<TransformerBlock<B>>,
     proj_out: nn::Linear<B>,
 }
 
-impl<B: Backend> SpatialTransformer<B> {
+impl<B: MyBackend> SpatialTransformer<B> {
     fn forward(&self, x: Tensor<B, 4>, context: Tensor<B, 3>) -> Tensor<B, 4> {
         let [n_batch, n_channel, height, width] = x.dims();
 
@@ -1114,7 +1116,7 @@ pub struct TransformerBlockConfig {
 }
 
 impl TransformerBlockConfig {
-    fn init<B: Backend>(&self) -> TransformerBlock<B> {
+    fn init<B: MyBackend>(&self) -> TransformerBlock<B> {
         let norm1 = LayerNormConfig::new(self.n_state).init();
         let attn1 = MultiHeadAttentionConfig::new(self.n_state, self.n_state, self.n_head).init();
         let norm2 = LayerNormConfig::new(self.n_state).init();
@@ -1135,7 +1137,7 @@ impl TransformerBlockConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct TransformerBlock<B: Backend> {
+pub struct TransformerBlock<B: MyBackend> {
     norm1: LayerNorm<B>,
     attn1: MultiHeadAttention<B>,
     norm2: LayerNorm<B>,
@@ -1144,7 +1146,7 @@ pub struct TransformerBlock<B: Backend> {
     mlp: MLP<B>,
 }
 
-impl<B: Backend> TransformerBlock<B> {
+impl<B: MyBackend> TransformerBlock<B> {
     fn forward(&self, x: Tensor<B, 3>, context: Tensor<B, 3>) -> Tensor<B, 3> {
         let x = x.clone() + self.attn1.forward(self.norm1.forward(x), None);
         let x = x.clone() + self.attn2.forward(self.norm2.forward(x), Some(context));
@@ -1225,7 +1227,7 @@ pub struct MultiHeadAttentionConfig {
 }
 
 impl MultiHeadAttentionConfig {
-    fn init<B: Backend>(&self) -> MultiHeadAttention<B> {
+    fn init<B: MyBackend>(&self) -> MultiHeadAttention<B> {
         assert!(
             self.n_state % self.n_head == 0,
             "State size {} must be a multiple of head size {}",
@@ -1256,7 +1258,7 @@ impl MultiHeadAttentionConfig {
 }
 
 #[derive(Module, Debug)]
-pub struct MultiHeadAttention<B: Backend> {
+pub struct MultiHeadAttention<B: MyBackend> {
     n_head: usize,
     query: nn::Linear<B>,
     key: nn::Linear<B>,
@@ -1264,7 +1266,7 @@ pub struct MultiHeadAttention<B: Backend> {
     out: nn::Linear<B>,
 }
 
-impl<B: Backend> MultiHeadAttention<B> {
+impl<B: MyBackend> MultiHeadAttention<B> {
     pub fn forward(&self, x: Tensor<B, 3>, context: Option<Tensor<B, 3>>) -> Tensor<B, 3> {
         let xa = context.unwrap_or_else(|| x.clone());
 
@@ -1272,7 +1274,7 @@ impl<B: Backend> MultiHeadAttention<B> {
         let k = self.key.forward(xa.clone());
         let v = self.value.forward(xa);
 
-        let wv = qkv_attention(q, k, v, None, self.n_head);
+        let wv = Tensor::from_primitive(B::qkv_attention(q.into_primitive(), k.into_primitive(), v.into_primitive(), None, self.n_head));
 
         self.out.forward(wv)
     }

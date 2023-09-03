@@ -11,11 +11,13 @@ use stablediffusion::model::stablediffusion::{
 };
 use stablediffusion::model::unet::{load::load_unet, UNet, UNetConfig};
 
+use stablediffusion::backend::Backend;
+
 use burn::{
     config::Config,
     module::{Module, Param},
     nn,
-    tensor::{self, backend::Backend, Tensor},
+    tensor::{self, Tensor},
 };
 
 use burn_tch::{TchBackend, TchDevice};

@@ -10,7 +10,6 @@ use burn::{
     },
     tensor::{
         activation::{sigmoid, softmax},
-        backend::Backend,
         module::embedding,
         Distribution, Int, Tensor,
     },
@@ -18,7 +17,7 @@ use burn::{
 
 use crate::helper::div_roundup;
 
-use super::attention::qkv_attention;
+use crate::backend::Backend;
 use super::groupnorm::*;
 use super::silu::*;
 
@@ -566,7 +565,7 @@ impl<B: Backend> ConvSelfAttentionBlock<B> {
             .reshape([n_batch, n_channel, height * width])
             .swap_dims(1, 2);
 
-        let wv = qkv_attention(q, k, v, None, 1)
+        let wv = Tensor::from_primitive(B::qkv_attention(q.into_primitive(), k.into_primitive(), v.into_primitive(), None, 1))
             .swap_dims(1, 2)
             .reshape([n_batch, n_channel, height, width]);
 

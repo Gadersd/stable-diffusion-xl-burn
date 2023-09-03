@@ -8,13 +8,12 @@ use burn::{
     nn,
     tensor::{
         activation::{sigmoid, softmax},
-        backend::Backend,
         module::embedding,
         Distribution, Int, Tensor,
     },
 };
 
-use crate::model::attention::{attn_decoder_mask, qkv_attention};
+use crate::backend::Backend;
 
 #[derive(Config, Debug)]
 pub struct CLIPConfig {
@@ -93,7 +92,7 @@ impl<B: Backend> CLIP<B> {
     pub fn forward_hidden(&self, x: Tensor<B, 2, Int>, hidden_idx: usize) -> Tensor<B, 3> {
         let [n_batch, seq_len] = x.dims();
 
-        let mask = attn_decoder_mask(seq_len, &x.device());
+        let mask = Tensor::from_primitive(B::attn_decoder_mask(seq_len, &x.device()));
 
         let embedded = self.token_embedding.forward(x)
             + self
@@ -117,7 +116,7 @@ impl<B: Backend> CLIP<B> {
     ) -> (Tensor<B, 3>, Tensor<B, 2>) {
         let [n_batch, seq_len] = text.dims();
 
-        let mask = attn_decoder_mask(seq_len, &text.device());
+        let mask = Tensor::from_primitive(B::attn_decoder_mask(seq_len, &text.device()));
 
         let embedded = self.token_embedding.forward(text.clone())
             + self
@@ -244,7 +243,7 @@ impl<B: Backend> MultiHeadSelfAttention<B> {
         let k = self.key.forward(x.clone());
         let v = self.value.forward(x);
 
-        let wv = qkv_attention(q, k, v, mask, self.n_head);
+        let wv = Tensor::from_primitive(B::qkv_attention(q.into_primitive(), k.into_primitive(), v.into_primitive(), mask, self.n_head));
 
         return self.out.forward(wv);
     }

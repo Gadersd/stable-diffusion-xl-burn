@@ -16,7 +16,7 @@ pub fn numpy_to_tensor<B: Backend, const D: usize>(
     numpy_data: NpyData<f32>,
     device: &B::Device,
 ) -> Tensor<B, D> {
-    let mut v = numpy_data.to_vec();
+    let v = numpy_data.to_vec();
 
     let shape: Vec<_> = v[0..D].into_iter().map(|&v| v as usize).collect();
     let data: Vec<B::FloatElem> = v[D..].into_iter().map(|e| e.elem()).collect();

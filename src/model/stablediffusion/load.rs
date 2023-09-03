@@ -37,7 +37,7 @@ pub fn load_embedder<B: Backend>(
     let clip = load_clip_text_transformer(&format!("{}/{}", path, "clip"), device, false)?;
     let open_clip = load_clip_text_transformer(&format!("{}/{}", path, "open_clip"), device, true)?;
 
-    let clip_tokenizer = SimpleTokenizer::new()?;
+    let clip_tokenizer = ClipTokenizer::new()?;
     let open_clip_tokenizer = OpenClipTokenizer::new()?;
 
     Ok(Embedder {

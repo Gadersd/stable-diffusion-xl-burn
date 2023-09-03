@@ -54,7 +54,7 @@ fn arb_tensor<B: Backend, const D: usize>(dims: [usize; D]) -> Tensor<B, D> {
     to_float(Tensor::arange(0..prod)).sin().reshape(dims)
 }
 
-use stablediffusion::token::{clip::SimpleTokenizer, open_clip::OpenClipTokenizer, Tokenizer};
+use stablediffusion::token::{clip::ClipTokenizer, open_clip::OpenClipTokenizer, Tokenizer};
 
 /*fn test_tiny_clip<B: Backend>(device: &B::Device) {
     println!("Loading Tiny Clip");
@@ -84,7 +84,7 @@ fn test_clip<B: Backend>(device: &B::Device) {
     println!("Loading Clip");
     let encoder: CLIP<B> = load_clip_text_transformer("params", device, false).unwrap();
 
-    let tokenizer = SimpleTokenizer::new().unwrap();
+    let tokenizer = ClipTokenizer::new().unwrap();
 
     let text = "Hello world! asdf!!!!asdf";
     println!("Sampling with text: {}", text);

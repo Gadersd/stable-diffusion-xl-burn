@@ -54,7 +54,7 @@ fn arb_tensor<B: Backend, const D: usize>(dims: [usize; D]) -> Tensor<B, D> {
     to_float(Tensor::arange(0..prod)).sin().reshape(dims)
 }
 
-use stablediffusion::token::{clip::SimpleTokenizer, open_clip::OpenClipTokenizer, Tokenizer};
+use stablediffusion::token::{clip::ClipTokenizer, open_clip::OpenClipTokenizer, Tokenizer};
 
 use burn::tensor::ElementConversion;
 use num_traits::cast::ToPrimitive;

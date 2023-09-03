@@ -86,7 +86,7 @@ pub fn load_clip_text_transformer<B: Backend>(
         load_tensor("weight", &format!("{}/position_embedding", path), device)?.into();
 
     let n_layer = load_usize::<B>("n_layer", path, device)?;
-    let mut blocks = (0..n_layer)
+    let blocks = (0..n_layer)
         .into_iter()
         .map(|i| {
             load_residual_decoder_attention_block::<B>(

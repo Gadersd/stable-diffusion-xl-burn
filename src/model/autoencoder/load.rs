@@ -137,7 +137,7 @@ pub fn load_decoder<B: Backend>(
     let mid = load_mid(&format!("{}/{}", path, "mid"), device)?;
 
     let n_block = load_usize::<B>("n_block", path, device)?;
-    let mut blocks = (0..n_block)
+    let blocks = (0..n_block)
         .into_iter()
         .map(|i| load_decoder_block::<B>(&format!("{}/blocks/{}", path, i), device))
         .collect::<Result<Vec<_>, _>>()?;
@@ -164,7 +164,7 @@ pub fn load_encoder<B: Backend>(
     let mid = load_mid(&format!("{}/{}", path, "mid"), device)?;
 
     let n_block = load_usize::<B>("n_block", path, device)?;
-    let mut blocks = (0..n_block)
+    let blocks = (0..n_block)
         .into_iter()
         .map(|i| load_encoder_block::<B>(&format!("{}/blocks/{}", path, i), device))
         .collect::<Result<Vec<_>, _>>()?;

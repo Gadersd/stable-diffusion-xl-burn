@@ -77,7 +77,7 @@ fn construct_vocab(
 }
 
 #[derive(Module, Clone, Debug)]
-pub struct SimpleTokenizer {
+pub struct ClipTokenizer {
     byte_encoder: HashMap<u8, char>,
     byte_decoder: HashMap<char, u8>,
     encoder: HashMap<String, u32>,
@@ -87,7 +87,7 @@ pub struct SimpleTokenizer {
     pat: Regex,
 }
 
-impl SimpleTokenizer {
+impl ClipTokenizer {
     pub fn new() -> io::Result<Self> {
         let byte_unicode_values = bytes_to_unicode();
 
@@ -109,7 +109,7 @@ impl SimpleTokenizer {
 
         let pat = Regex::new(r"(?i)<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|\p{L}+|\p{N}|[^\s\p{L}\p{N}]+").unwrap();
 
-        Ok(SimpleTokenizer {
+        Ok(ClipTokenizer {
             byte_encoder: byte_encoder,
             byte_decoder: byte_decoder,
             encoder: encoder,
@@ -178,7 +178,7 @@ impl SimpleTokenizer {
     }
 }
 
-impl Tokenizer for SimpleTokenizer {
+impl Tokenizer for ClipTokenizer {
     fn encode(&self, text: &str, add_sot: bool, add_eot: bool) -> Vec<u32> {
         let cleaned_text = whitespace_clean(text.trim()).to_lowercase();
 
@@ -235,7 +235,7 @@ mod tests {
 
     #[test]
     fn test_encode_decode() {
-        let tokenizer = SimpleTokenizer::new().unwrap();
+        let tokenizer = ClipTokenizer::new().unwrap();
 
         let text = "Hello world! <|startoftext|>asdf<|startoftext|>";
         let target_encode = [3306, 1002, 256, 49406, 587, 10468, 49406];

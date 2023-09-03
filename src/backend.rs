@@ -36,21 +36,23 @@ impl<E: TchElement> Backend for burn_tch::TchBackend<E> {
         mask: Option<Self::TensorPrimitive<2>>,
         n_head: usize,
     ) -> Self::TensorPrimitive<3> {
-        let [n_batch, q_ctx, n_state] = Self::shape(&q).dims;
-        let [_, k_ctx, _] = Self::shape(&k).dims;
+        let q = Tensor::from_primitive(q);
+        let k = Tensor::from_primitive(k);
+        let v = Tensor::from_primitive(v);
+
+        let [n_batch, q_ctx, n_state] = q.dims();
+        let [_, k_ctx, _] = k.dims();
         let n_hstate = n_state / n_head;
 
-        let rearrange = |t| {
-            let t = Tensor::<Self, 3>::from_primitive(t);
-            let [_, n_ctx, _] = t.shape().dims;
+        let rearrange = |t: Tensor<Self, 3>| {
+            let [_, n_ctx, _] = t.dims();
             t.reshape([n_batch, n_ctx, n_head, n_hstate])
                 .swap_dims(1, 2)
-                .into_primitive()
         };
 
-        let q: TchTensor<E, 4> = rearrange(q);
-        let k = rearrange(k);
-        let v = rearrange(v);
+        let q = rearrange(q).into_primitive();
+        let k = rearrange(k).into_primitive();
+        let v = rearrange(v).into_primitive();
 
         // for some reason torch crashes when mask is None
         let mask = mask.unwrap_or_else(|| {

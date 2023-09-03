@@ -12,7 +12,7 @@ use super::autoencoder::{Autoencoder, AutoencoderConfig};
 use super::clip::{CLIPConfig, CLIP};
 use super::unet::{conditioning_embedding, UNet, UNetConfig};
 use crate::backend::Backend as MyBackend;
-use crate::token::{clip::SimpleTokenizer, open_clip::OpenClipTokenizer, Tokenizer};
+use crate::token::{clip::ClipTokenizer, open_clip::OpenClipTokenizer, Tokenizer};
 
 /*#[derive(Config)]
 pub struct StableDiffusionConfig {
@@ -152,11 +152,11 @@ impl<B: Backend> StableDiffusion<B> {
         unconditional_latent.clone() + (conditional_latent - unconditional_latent) * unconditional_guidance_scale
     }
 
-    pub fn unconditional_context(&self, tokenizer: &SimpleTokenizer) -> Tensor<B, 2> {
+    pub fn unconditional_context(&self, tokenizer: &ClipTokenizer) -> Tensor<B, 2> {
         self.context(tokenizer, "").squeeze(0)
     }
 
-    pub fn context(&self, tokenizer: &SimpleTokenizer, text: &str) -> Tensor<B, 3> {
+    pub fn context(&self, tokenizer: &ClipTokenizer, text: &str) -> Tensor<B, 3> {
         let device = &self.clip.devices()[0];
         let text = format!("<|startoftext|>{}<|endoftext|>", text);
         let tokenized: Vec<_> = tokenizer.encode(&text).into_iter().map(|v| v as i32).collect();
@@ -552,7 +552,7 @@ impl EmbedderConfig {
         let clip = self.clip_config.init();
         let open_clip = self.open_clip_config.init();
 
-        let clip_tokenizer = SimpleTokenizer::new().unwrap();
+        let clip_tokenizer = ClipTokenizer::new().unwrap();
         let open_clip_tokenizer = OpenClipTokenizer::new().unwrap();
 
         Embedder {
@@ -568,7 +568,7 @@ impl EmbedderConfig {
 pub struct Embedder<B: Backend> {
     clip: CLIP<B>,
     open_clip: CLIP<B>,
-    clip_tokenizer: SimpleTokenizer,
+    clip_tokenizer: ClipTokenizer,
     open_clip_tokenizer: OpenClipTokenizer,
 }
 

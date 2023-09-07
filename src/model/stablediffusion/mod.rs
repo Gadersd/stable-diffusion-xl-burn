@@ -718,11 +718,11 @@ pub fn tokenize_text<B: Backend, T: Tokenizer>(
         .unsqueeze()
 }
 
-use crate::helper::to_float;
 use std::f64::consts::PI;
 
 fn cosine_schedule<B: Backend>(n_steps: usize) -> Tensor<B, 1> {
-    to_float(Tensor::arange(1..n_steps + 1))
+    Tensor::arange(1..n_steps + 1)
+        .float()
         .mul_scalar(PI * 0.5 / n_steps as f64)
         .cos()
 }
@@ -733,10 +733,9 @@ fn offset_cosine_schedule<B: Backend>(n_steps: usize, device: &B::Device) -> Ten
     let start_angle = max_signal_rate.acos();
     let end_angle = min_signal_rate.acos();
 
-    let times = Tensor::arange_device(1..n_steps + 1, device);
+    let times = Tensor::arange_device(1..n_steps + 1, device).float();
 
-    let diffusion_angles =
-        to_float(times) * ((end_angle - start_angle) / n_steps as f64) + start_angle;
+    let diffusion_angles = times * ((end_angle - start_angle) / n_steps as f64) + start_angle;
     diffusion_angles.cos()
 }
 

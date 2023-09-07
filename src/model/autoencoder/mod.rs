@@ -16,8 +16,6 @@ use burn::{
     },
 };
 
-use crate::helper::div_roundup;
-
 use super::groupnorm::*;
 use super::silu::*;
 use crate::backend::Backend as MyBackend;
@@ -368,6 +366,10 @@ impl PaddedConv2dConfig {
             padding_actual,
         }
     }
+}
+
+fn div_roundup(x: usize, y: usize) -> usize {
+    (x + y - 1) / y
 }
 
 #[derive(Module, Debug)]

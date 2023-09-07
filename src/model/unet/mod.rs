@@ -16,7 +16,6 @@ use burn::tensor::backend::Backend;
 use super::groupnorm::*;
 use super::silu::*;
 use crate::backend::Backend as MyBackend;
-use crate::helper::to_float;
 use crate::model::layernorm::{LayerNorm, LayerNormConfig};
 
 pub fn timestep_embedding<B: Backend>(
@@ -27,10 +26,11 @@ pub fn timestep_embedding<B: Backend>(
     let [n_batch] = timesteps.dims();
 
     let half = dim / 2;
-    let freqs = (to_float(Tensor::arange_device(0..half, &timesteps.device()))
+    let freqs = (Tensor::arange_device(0..half, &timesteps.device()).float()
         * (-(max_period as f64).ln() / half as f64))
         .exp();
-    let args = to_float(timesteps)
+    let args = timesteps
+        .float()
         .unsqueeze::<2>()
         .transpose()
         .repeat(1, half)

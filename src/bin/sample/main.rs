@@ -47,11 +47,9 @@ fn load_latent_decoder_model<B: Backend>(
     Ok(config.init().load_record(record))
 }
 
-use stablediffusion::helper::to_float;
-
 fn arb_tensor<B: Backend, const D: usize>(dims: [usize; D]) -> Tensor<B, D> {
     let prod = dims.iter().cloned().product();
-    to_float(Tensor::arange(0..prod)).sin().reshape(dims)
+    Tensor::arange(0..prod).float().sin().reshape(dims)
 }
 
 use stablediffusion::token::{clip::ClipTokenizer, open_clip::OpenClipTokenizer, Tokenizer};

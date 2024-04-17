@@ -11,15 +11,15 @@ A later section explains how you can convert any SDXL model to burn's format.
 Start by downloading the pre-converted SDXL1.0 model files provided on HuggingFace.
 
 ```bash
-wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/diffuser.bin -P ./SDXL1.0/
+wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/diffuser.mpk -P ./SDXL1.0/
 wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/diffuser.cfg -P ./SDXL1.0/
-wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/embedder.bin -P ./SDXL1.0/
+wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/embedder.mpk -P ./SDXL1.0/
 wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/embedder.cfg -P ./SDXL1.0/
-wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/latent_decoder.bin -P ./SDXL1.0/
+wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/latent_decoder.mpk -P ./SDXL1.0/
 wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/latent_decoder.cfg -P ./SDXL1.0/
 
 # if you want to use the refiner
-wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/refiner.bin -P ./SDXL1.0/
+wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/refiner.mpk -P ./SDXL1.0/
 wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.0/refiner.cfg -P ./SDXL1.0/
 ```
 

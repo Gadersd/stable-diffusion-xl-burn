@@ -20,13 +20,13 @@ pub struct StableDiffusionConfig {
 }
 
 impl StableDiffusionConfig {
-    pub fn init<B: Backend>(&self) -> StableDiffusion<B> {
+    pub fn init<B: Backend>(&self, device: &B::Device) -> StableDiffusion<B> {
         let n_steps = 1000;
         let alpha_cumulative_products = offset_cosine_schedule_cumprod::<B>(n_steps).into();
 
-        let autoencoder = AutoencoderConfig::new().init();
-        let diffusion = UNetConfig::new(2816, 4, 4, 320, 64, 2048).init();
-        let clip = CLIPConfig::new(49408, 768, 12, 77, 12, false).init();
+        let autoencoder = AutoencoderConfig::new().init(device);
+        let diffusion = UNetConfig::new(2816, 4, 4, 320, 64, 2048).init(device);
+        let clip = CLIPConfig::new(49408, 768, 12, 77, 12, false).init(device);
 
         StableDiffusion {
             n_steps,
@@ -177,8 +177,8 @@ pub struct LatentDecoderConfig {
 }
 
 impl LatentDecoderConfig {
-    pub fn init<B: Backend>(&self) -> LatentDecoder<B> {
-        let autoencoder = AutoencoderConfig::new().init();
+    pub fn init<B: Backend>(&self, device: &B::Device) -> LatentDecoder<B> {
+        let autoencoder = AutoencoderConfig::new().init(device);
         let scale_factor = self.scale_factor;
 
         LatentDecoder {
@@ -256,10 +256,10 @@ pub struct DiffuserConfig {
 }
 
 impl DiffuserConfig {
-    pub fn init<B: Backend>(&self) -> Diffuser<B> {
+    pub fn init<B: Backend>(&self, device: &B::Device) -> Diffuser<B> {
         let n_steps = 1000;
-        let alpha_cumulative_products = Tensor::zeros([1]).into(); //offset_cosine_schedule_cumprod::<B>(n_steps).into();
-                                                                   //let diffusion = UNetConfig::new(2816, 4, 4, 320, 64, 2048).init();
+        let alpha_cumulative_products = Param::from_tensor(Tensor::zeros([1], device)); //offset_cosine_schedule_cumprod::<B>(n_steps).into();
+                                                                   //let diffusion = UNetConfig::new(2816, 4, 4, 320, 64, 2048).init(device);
         let diffusion = UNetConfig::new(
             self.adm_in_channels,
             4,
@@ -270,7 +270,7 @@ impl DiffuserConfig {
             self.transformer_depths.clone(),
             self.context_dim,
         )
-        .init();
+        .init(device);
 
         let is_refiner = self.is_refiner;
 
@@ -346,8 +346,8 @@ impl<B: MyBackend> Diffuser<B> {
         Tensor::random(
             [n_batches, 4, height / 8, width / 8],
             Distribution::Normal(0.0, 1.0),
+            &device
         )
-        .to_device(&device)
     }
 
     fn diffuse_latent(
@@ -388,7 +388,7 @@ impl<B: MyBackend> Diffuser<B> {
 
             let sqrt_noise = (1.0 - current_alpha).sqrt();
 
-            let timestep = Tensor::from_ints([t as i32]).to_device(&device);
+            let timestep = Tensor::from_ints([t as i32], &device);
             let pred_noise = self.forward_diffuser(
                 latent.clone(),
                 timestep,
@@ -545,12 +545,12 @@ pub struct EmbedderConfig {
 }
 
 impl EmbedderConfig {
-    pub fn init<B: Backend>(&self) -> Embedder<B> {
-        /*let clip = CLIPConfig::new(49408, 768, 768, 12, 77, 12, true).init();
-        let open_clip = CLIPConfig::new(49408, 1024, 1024, 16, 77, 24, false).init();*/
+    pub fn init<B: Backend>(&self, device: &B::Device) -> Embedder<B> {
+        /*let clip = CLIPConfig::new(49408, 768, 768, 12, 77, 12, true).init(device);
+        let open_clip = CLIPConfig::new(49408, 1024, 1024, 16, 77, 24, false).init(device);*/
 
-        let clip = self.clip_config.init();
-        let open_clip = self.open_clip_config.init();
+        let clip = self.clip_config.init(device);
+        let open_clip = self.open_clip_config.init(device);
 
         let clip_tokenizer = ClipTokenizer::new().unwrap();
         let open_clip_tokenizer = OpenClipTokenizer::new().unwrap();
@@ -621,10 +621,9 @@ impl<B: MyBackend> Embedder<B> {
             text_to_context_open_clip("", &self.open_clip, &self.open_clip_tokenizer);
 
         let [n_batch, _] = ar.dims();
-        let aesthetic_scores = Tensor::from_ints([6])
+        let aesthetic_scores = Tensor::from_ints([6], &size.device())
             .repeat(0, n_batch)
-            .unsqueeze()
-            .to_device(&size.device());
+            .unsqueeze();
 
         (
             Tensor::cat(vec![clip_context, open_clip_context.clone()], 2).squeeze(0),
@@ -653,10 +652,9 @@ impl<B: MyBackend> Embedder<B> {
             text_to_context_open_clip(text, &self.open_clip, &self.open_clip_tokenizer);
 
         let [n_batch, _] = ar.dims();
-        let aesthetic_scores = Tensor::from_ints([6])
+        let aesthetic_scores = Tensor::from_ints([6], &size.device())
             .repeat(0, n_batch)
-            .unsqueeze()
-            .to_device(&size.device());
+            .unsqueeze();
 
         (
             Tensor::cat(vec![clip_context, open_clip_context.clone()], 2),
@@ -713,15 +711,14 @@ pub fn tokenize_text<B: Backend, T: Tokenizer>(
 
     tokenized.resize(seq_len, tokenizer.padding_token() as i32);
 
-    Tensor::from_ints(&tokenized[..])
-        .to_device(device)
+    Tensor::from_ints(&tokenized[..], device)
         .unsqueeze()
 }
 
 use std::f64::consts::PI;
 
-fn cosine_schedule<B: Backend>(n_steps: usize) -> Tensor<B, 1> {
-    Tensor::arange(1..n_steps + 1)
+fn cosine_schedule<B: Backend>(n_steps: usize, device: &B::Device) -> Tensor<B, 1> {
+    Tensor::arange(1..n_steps as i64 + 1, device)
         .float()
         .mul_scalar(PI * 0.5 / n_steps as f64)
         .cos()
@@ -733,7 +730,7 @@ fn offset_cosine_schedule<B: Backend>(n_steps: usize, device: &B::Device) -> Ten
     let start_angle = max_signal_rate.acos();
     let end_angle = min_signal_rate.acos();
 
-    let times = Tensor::arange_device(1..n_steps + 1, device).float();
+    let times = Tensor::arange(1..n_steps as i64 + 1, device).float();
 
     let diffusion_angles = times * ((end_angle - start_angle) / n_steps as f64) + start_angle;
     diffusion_angles.cos()
@@ -743,5 +740,5 @@ pub fn offset_cosine_schedule_cumprod<B: Backend>(
     n_steps: usize,
     device: &B::Device,
 ) -> Tensor<B, 1> {
-    offset_cosine_schedule::<B>(n_steps, device).powf(2.0)
+    offset_cosine_schedule::<B>(n_steps, device).powf_scalar(2.0)
 }

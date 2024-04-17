@@ -6,7 +6,7 @@ use burn::{
     nn::{
         self,
         conv::{Conv2d, Conv2dConfig},
-        PaddingConfig2d, GELU,
+        PaddingConfig2d, Gelu,
     },
     tensor::{activation::softmax, module::embedding, Distribution, Int, Tensor},
 };
@@ -26,7 +26,7 @@ pub fn timestep_embedding<B: Backend>(
     let [n_batch] = timesteps.dims();
 
     let half = dim / 2;
-    let freqs = (Tensor::arange_device(0..half, &timesteps.device()).float()
+    let freqs = (Tensor::arange(0..half as i64, &timesteps.device()).float()
         * (-(max_period as f64).ln() / half as f64))
         .exp();
     let args = timesteps
@@ -69,7 +69,7 @@ pub struct UNetConfig {
 }
 
 impl UNetConfig {
-    pub fn init<B: Backend>(&self) -> UNet<B> {
+    pub fn init<B: Backend>(&self, device: &B::Device) -> UNet<B> {
         assert!(
             self.model_channels % self.n_head_channels == 0,
             "The number of head channels must evenly divide the model channels."
@@ -79,13 +79,13 @@ impl UNetConfig {
 
         let time_embed_dim = self.model_channels * 4;
 
-        let lin1_time_embed = nn::LinearConfig::new(self.model_channels, time_embed_dim).init();
+        let lin1_time_embed = nn::LinearConfig::new(self.model_channels, time_embed_dim).init(device);
         let silu_time_embed = SILU::new();
-        let lin2_time_embed = nn::LinearConfig::new(time_embed_dim, time_embed_dim).init();
+        let lin2_time_embed = nn::LinearConfig::new(time_embed_dim, time_embed_dim).init(device);
 
-        let lin1_label_embed = nn::LinearConfig::new(self.adm_in_channels, time_embed_dim).init();
+        let lin1_label_embed = nn::LinearConfig::new(self.adm_in_channels, time_embed_dim).init(device);
         let silu_label_embed = SILU::new();
-        let lin2_label_embed = nn::LinearConfig::new(time_embed_dim, time_embed_dim).init();
+        let lin2_label_embed = nn::LinearConfig::new(time_embed_dim, time_embed_dim).init(device);
 
         let model_channels = self.model_channels;
 
@@ -116,7 +116,7 @@ impl UNetConfig {
         input_blocks.push(UNetBlocks::Conv(
             Conv2dConfig::new([self.in_channels, self.model_channels], [3, 3])
                 .with_padding(PaddingConfig2d::Explicit(1, 1))
-                .init(),
+                .init(device),
         ));
         for level in 0..n_levels {
             let channels_in = self.channel_mults[level.saturating_sub(1)] * self.model_channels;
@@ -124,11 +124,11 @@ impl UNetConfig {
 
             let (r1, r2) = if level != 1 && level != 2 {
                 let r1 = UNetBlocks::Res(
-                    ResBlockConfig::new(channels_in, time_embed_dim, channels_out).init(),
+                    ResBlockConfig::new(channels_in, time_embed_dim, channels_out).init(device),
                 );
 
                 let r2 = UNetBlocks::Res(
-                    ResBlockConfig::new(channels_out, time_embed_dim, channels_out).init(),
+                    ResBlockConfig::new(channels_out, time_embed_dim, channels_out).init(device),
                 );
 
                 (r1, r2)
@@ -145,7 +145,7 @@ impl UNetConfig {
                         n_head,
                         depth,
                     )
-                    .init(),
+                    .init(device),
                 );
 
                 let rt2 = UNetBlocks::ResT(
@@ -157,7 +157,7 @@ impl UNetConfig {
                         n_head,
                         depth,
                     )
-                    .init(),
+                    .init(device),
                 );
 
                 (rt1, rt2)
@@ -167,7 +167,7 @@ impl UNetConfig {
 
             // no downsampling on last block
             if level != n_levels - 1 {
-                let d = DownsampleConfig::new(channels_out).init();
+                let d = DownsampleConfig::new(channels_out).init(device);
                 input_blocks.push(UNetBlocks::Down(d));
             }
         }
@@ -175,12 +175,12 @@ impl UNetConfig {
         /*let input_blocks = UNetInputBlocks {
             conv: Conv2dConfig::new([self.in_channels, self.model_channels], [3, 3])
                 .with_padding(PaddingConfig2d::Explicit(1, 1))
-                .init(),
+                .init(device),
             r1: ResBlockConfig::new(self.model_channels, time_embed_dim, self.model_channels)
-                .init(),
+                .init(device),
             r2: ResBlockConfig::new(self.model_channels, time_embed_dim, self.model_channels)
-                .init(),
-            d1: DownsampleConfig::new(self.model_channels).init(),
+                .init(device),
+            d1: DownsampleConfig::new(self.model_channels).init(device),
             rt1: ResTransformerConfig::new(
                 self.model_channels,
                 time_embed_dim,
@@ -189,7 +189,7 @@ impl UNetConfig {
                 n_head(2 * self.model_channels),
                 2,
             )
-            .init(),
+            .init(device),
             rt2: ResTransformerConfig::new(
                 2 * self.model_channels,
                 time_embed_dim,
@@ -198,8 +198,8 @@ impl UNetConfig {
                 n_head(2 * self.model_channels),
                 2,
             )
-            .init(),
-            d2: DownsampleConfig::new(2 * self.model_channels).init(),
+            .init(device),
+            d2: DownsampleConfig::new(2 * self.model_channels).init(device),
             rt3: ResTransformerConfig::new(
                 2 * self.model_channels,
                 time_embed_dim,
@@ -208,7 +208,7 @@ impl UNetConfig {
                 n_head(4 * self.model_channels),
                 10,
             )
-            .init(),
+            .init(device),
             rt4: ResTransformerConfig::new(
                 4 * self.model_channels,
                 time_embed_dim,
@@ -217,22 +217,22 @@ impl UNetConfig {
                 n_head(4 * self.model_channels),
                 10,
             )
-            .init(),
+            .init(device),
         };*/
 
         /*let input_blocks = UNetInputBlocks {
-            conv: Conv2dConfig::new([self.in_channels, self.model_channels], [3, 3]).with_padding(PaddingConfig2d::Explicit(1, 1)).init(),
-            rt1: ResTransformerConfig::new(320, 1280, 320, 768, 8).init(),
-            rt2: ResTransformerConfig::new(320, 1280, 320, 768, 8).init(),
-            d1: DownsampleConfig::new(320).init(),
-            rt3: ResTransformerConfig::new(320, 1280, 640, 768, 8).init(),
-            rt4: ResTransformerConfig::new(640, 1280, 640, 768, 8).init(),
-            d2: DownsampleConfig::new(640).init(),
-            rt5: ResTransformerConfig::new(640, 1280, 1280, 768, 8).init(),
-            rt6: ResTransformerConfig::new(1280, 1280, 1280, 768, 8).init(),
-            d3: DownsampleConfig::new(1280).init(),
-            r1: ResBlockConfig::new(1280, 1280, 1280).init(),
-            r2: ResBlockConfig::new(1280, 1280, 1280).init(),
+            conv: Conv2dConfig::new([self.in_channels, self.model_channels], [3, 3]).with_padding(PaddingConfig2d::Explicit(1, 1)).init(device),
+            rt1: ResTransformerConfig::new(320, 1280, 320, 768, 8).init(device),
+            rt2: ResTransformerConfig::new(320, 1280, 320, 768, 8).init(device),
+            d1: DownsampleConfig::new(320).init(device),
+            rt3: ResTransformerConfig::new(320, 1280, 640, 768, 8).init(device),
+            rt4: ResTransformerConfig::new(640, 1280, 640, 768, 8).init(device),
+            d2: DownsampleConfig::new(640).init(device),
+            rt5: ResTransformerConfig::new(640, 1280, 1280, 768, 8).init(device),
+            rt6: ResTransformerConfig::new(1280, 1280, 1280, 768, 8).init(device),
+            d3: DownsampleConfig::new(1280).init(device),
+            r1: ResBlockConfig::new(1280, 1280, 1280).init(device),
+            r2: ResBlockConfig::new(1280, 1280, 1280).init(device),
         };*/
 
         let channels_in_middle = self.channel_mults.last().unwrap() * self.model_channels;
@@ -245,7 +245,7 @@ impl UNetConfig {
             n_head(channels_in_middle),
             depth_middle,
         )
-        .init();
+        .init(device);
 
         let mut output_blocks = Vec::new();
         for level in (0..n_levels).into_iter().rev() {
@@ -263,20 +263,20 @@ impl UNetConfig {
 
             let (r1, r2, r3) = if level != 1 && level != 2 {
                 let r1 = UNetBlocks::Res(
-                    ResBlockConfig::new(channels_in1, time_embed_dim, channels_out).init(),
+                    ResBlockConfig::new(channels_in1, time_embed_dim, channels_out).init(device),
                 );
 
                 let r2 = UNetBlocks::Res(
-                    ResBlockConfig::new(channels_in2, time_embed_dim, channels_out).init(),
+                    ResBlockConfig::new(channels_in2, time_embed_dim, channels_out).init(device),
                 );
 
                 let r3 = if level != 0 {
                     UNetBlocks::ResU(
-                        ResUpsampleConfig::new(channels_in3, time_embed_dim, channels_out).init(),
+                        ResUpsampleConfig::new(channels_in3, time_embed_dim, channels_out).init(device),
                     )
                 } else {
                     UNetBlocks::Res(
-                        ResBlockConfig::new(channels_in3, time_embed_dim, channels_out).init(),
+                        ResBlockConfig::new(channels_in3, time_embed_dim, channels_out).init(device),
                     )
                 };
 
@@ -294,7 +294,7 @@ impl UNetConfig {
                         n_head,
                         depth,
                     )
-                    .init(),
+                    .init(device),
                 );
 
                 let rt2 = UNetBlocks::ResT(
@@ -306,7 +306,7 @@ impl UNetConfig {
                         n_head,
                         depth,
                     )
-                    .init(),
+                    .init(device),
                 );
 
                 let rtu = UNetBlocks::ResTU(
@@ -318,7 +318,7 @@ impl UNetConfig {
                         n_head,
                         depth,
                     )
-                    .init(),
+                    .init(device),
                 );
 
                 (rt1, rt2, rtu)
@@ -336,7 +336,7 @@ impl UNetConfig {
                 n_head(4 * self.model_channels),
                 10,
             )
-            .init(),
+            .init(device),
             rt2: ResTransformerConfig::new(
                 8 * self.model_channels,
                 time_embed_dim,
@@ -345,7 +345,7 @@ impl UNetConfig {
                 n_head(4 * self.model_channels),
                 10,
             )
-            .init(),
+            .init(device),
             rtu1: ResTransformerUpsampleConfig::new(
                 6 * self.model_channels,
                 time_embed_dim,
@@ -354,7 +354,7 @@ impl UNetConfig {
                 n_head(4 * self.model_channels),
                 10,
             )
-            .init(),
+            .init(device),
             rt3: ResTransformerConfig::new(
                 6 * self.model_channels,
                 time_embed_dim,
@@ -363,7 +363,7 @@ impl UNetConfig {
                 n_head(2 * self.model_channels),
                 2,
             )
-            .init(),
+            .init(device),
             rt4: ResTransformerConfig::new(
                 4 * self.model_channels,
                 time_embed_dim,
@@ -372,7 +372,7 @@ impl UNetConfig {
                 n_head(2 * self.model_channels),
                 2,
             )
-            .init(),
+            .init(device),
             rtu2: ResTransformerUpsampleConfig::new(
                 3 * self.model_channels,
                 time_embed_dim,
@@ -381,35 +381,35 @@ impl UNetConfig {
                 n_head(2 * self.model_channels),
                 2,
             )
-            .init(),
+            .init(device),
             r1: ResBlockConfig::new(3 * self.model_channels, time_embed_dim, self.model_channels)
-                .init(),
+                .init(device),
             r2: ResBlockConfig::new(2 * self.model_channels, time_embed_dim, self.model_channels)
-                .init(),
+                .init(device),
             r3: ResBlockConfig::new(2 * self.model_channels, time_embed_dim, self.model_channels)
-                .init(),
+                .init(device),
         };*/
 
         /*let output_blocks = UNetOutputBlocks {
-            r1: ResBlockConfig::new(2560, 1280, 1280).init(),
-            r2: ResBlockConfig::new(2560, 1280, 1280).init(),
-            ru: ResUpSampleConfig::new(2560, 1280, 1280).init(),
-            rt1: ResTransformerConfig::new(2560, 1280, 1280, 768, 8).init(),
-            rt2: ResTransformerConfig::new(2560, 1280, 1280, 768, 8).init(),
-            rtu1: ResTransformerUpsampleConfig::new(1920, 1280, 1280, 768, 8).init(),
-            rt3: ResTransformerConfig::new(1920, 1280, 640, 768, 8).init(),
-            rt4: ResTransformerConfig::new(1280, 1280, 640, 768, 8).init(),
-            rtu2: ResTransformerUpsampleConfig::new(960, 1280, 640, 768, 8).init(),
-            rt5: ResTransformerConfig::new(960, 1280, 320, 768, 8).init(),
-            rt6: ResTransformerConfig::new(640, 1280, 320, 768, 8).init(),
-            rt7: ResTransformerConfig::new(640, 1280, 320, 768, 8).init(),
+            r1: ResBlockConfig::new(2560, 1280, 1280).init(device),
+            r2: ResBlockConfig::new(2560, 1280, 1280).init(device),
+            ru: ResUpSampleConfig::new(2560, 1280, 1280).init(device),
+            rt1: ResTransformerConfig::new(2560, 1280, 1280, 768, 8).init(device),
+            rt2: ResTransformerConfig::new(2560, 1280, 1280, 768, 8).init(device),
+            rtu1: ResTransformerUpsampleConfig::new(1920, 1280, 1280, 768, 8).init(device),
+            rt3: ResTransformerConfig::new(1920, 1280, 640, 768, 8).init(device),
+            rt4: ResTransformerConfig::new(1280, 1280, 640, 768, 8).init(device),
+            rtu2: ResTransformerUpsampleConfig::new(960, 1280, 640, 768, 8).init(device),
+            rt5: ResTransformerConfig::new(960, 1280, 320, 768, 8).init(device),
+            rt6: ResTransformerConfig::new(640, 1280, 320, 768, 8).init(device),
+            rt7: ResTransformerConfig::new(640, 1280, 320, 768, 8).init(device),
         };*/
 
-        let norm_out = GroupNormConfig::new(32, self.model_channels).init();
+        let norm_out = GroupNormConfig::new(32, self.model_channels).init(device);
         let silu_out = SILU::new();
         let conv_out = Conv2dConfig::new([self.model_channels, self.out_channels], [3, 3])
             .with_padding(PaddingConfig2d::Explicit(1, 1))
-            .init();
+            .init(device);
 
         UNet {
             model_channels,
@@ -505,7 +505,7 @@ pub struct UNetInputBlocks<B: Backend> {
     rt4: ResTransformer<B>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Module, Debug)]
 pub enum UNetBlocks<B: Backend> {
     Conv(Conv2d<B>),
     Res(ResBlock<B>),
@@ -513,270 +513,6 @@ pub enum UNetBlocks<B: Backend> {
     ResT(ResTransformer<B>),
     ResTU(ResTransformerUpsample<B>),
     ResU(ResUpsample<B>),
-}
-
-/*#[derive(Clone, Debug)]
-enum UNetBlockInnerModule<B: ADBackend> {
-    Conv(<Conv2d<B> as Module<B>>::InnerModule),
-    Res(<ResBlock<B> as Module<B>>::InnerModule),
-    Down(<Downsample<B> as Module<B>>::InnerModule),
-    ResT(<ResTransformer<B> as Module<B>>::InnerModule),
-    ResTU(<ResTransformerUpsample<B> as Module<B>>::InnerModule),
-    ResU(<ResUpsample<B> as Module<B>>::InnerModule),
-}*/
-
-use burn::module::ADModule;
-use burn::tensor::backend::ADBackend;
-
-impl<B: ADBackend> ADModule<B> for UNetBlocks<B> {
-    type InnerModule = UNetBlocks<<B as ADBackend>::InnerBackend>;
-
-    // Required method
-    fn valid(&self) -> Self::InnerModule {
-        match self {
-            UNetBlocks::Conv(b) => UNetBlocks::Conv(b.valid()),
-            UNetBlocks::Res(b) => UNetBlocks::Res(b.valid()),
-            UNetBlocks::Down(b) => UNetBlocks::Down(b.valid()),
-            UNetBlocks::ResT(b) => UNetBlocks::ResT(b.valid()),
-            UNetBlocks::ResTU(b) => UNetBlocks::ResTU(b.valid()),
-            UNetBlocks::ResU(b) => UNetBlocks::ResU(b.valid()),
-        }
-    }
-}
-
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug)]
-pub enum UNetBlockRecord<B: Backend> {
-    Conv(<Conv2d<B> as Module<B>>::Record),
-    Res(<ResBlock<B> as Module<B>>::Record),
-    Down(<Downsample<B> as Module<B>>::Record),
-    ResT(<ResTransformer<B> as Module<B>>::Record),
-    ResTU(<ResTransformerUpsample<B> as Module<B>>::Record),
-    ResU(<ResUpsample<B> as Module<B>>::Record),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(bound = "")]
-pub enum UNetBlockRecordItem<B: Backend, S: PrecisionSettings> {
-    Conv(<<Conv2d<B> as Module<B>>::Record as Record>::Item<S>),
-    Res(<<ResBlock<B> as Module<B>>::Record as Record>::Item<S>),
-    Down(<<Downsample<B> as Module<B>>::Record as Record>::Item<S>),
-    ResT(<<ResTransformer<B> as Module<B>>::Record as Record>::Item<S>),
-    ResTU(<<ResTransformerUpsample<B> as Module<B>>::Record as Record>::Item<S>),
-    ResU(<<ResUpsample<B> as Module<B>>::Record as Record>::Item<S>),
-}
-
-use burn::module::ModuleVisitor;
-use burn::record::PrecisionSettings;
-use burn::record::Record;
-
-impl<B: Backend> Record for UNetBlockRecord<B> {
-    type Item<S: PrecisionSettings> = UNetBlockRecordItem<B, S>;
-
-    // Required methods
-    fn into_item<S>(self) -> Self::Item<S>
-    where
-        S: PrecisionSettings,
-    {
-        match self {
-            UNetBlockRecord::Conv(b) => UNetBlockRecordItem::Conv(b.into_item()),
-            UNetBlockRecord::Res(b) => UNetBlockRecordItem::Res(b.into_item()),
-            UNetBlockRecord::Down(b) => UNetBlockRecordItem::Down(b.into_item()),
-            UNetBlockRecord::ResT(b) => UNetBlockRecordItem::ResT(b.into_item()),
-            UNetBlockRecord::ResTU(b) => UNetBlockRecordItem::ResTU(b.into_item()),
-            UNetBlockRecord::ResU(b) => UNetBlockRecordItem::ResU(b.into_item()),
-        }
-    }
-    fn from_item<S>(item: Self::Item<S>) -> Self
-    where
-        S: PrecisionSettings,
-    {
-        match item {
-            UNetBlockRecordItem::Conv(b) => {
-                UNetBlockRecord::Conv(<Conv2d<B> as Module<B>>::Record::from_item(b))
-            }
-            UNetBlockRecordItem::Res(b) => {
-                UNetBlockRecord::Res(<ResBlock<B> as Module<B>>::Record::from_item(b))
-            }
-            UNetBlockRecordItem::Down(b) => {
-                UNetBlockRecord::Down(<Downsample<B> as Module<B>>::Record::from_item(b))
-            }
-            UNetBlockRecordItem::ResT(b) => {
-                UNetBlockRecord::ResT(<ResTransformer<B> as Module<B>>::Record::from_item(b))
-            }
-            UNetBlockRecordItem::ResTU(b) => UNetBlockRecord::ResTU(
-                <ResTransformerUpsample<B> as Module<B>>::Record::from_item(b),
-            ),
-            UNetBlockRecordItem::ResU(b) => {
-                UNetBlockRecord::ResU(<ResUpsample<B> as Module<B>>::Record::from_item(b))
-            }
-        }
-    }
-}
-
-use burn::module::ModuleMapper;
-
-impl<B: Backend> Module<B> for UNetBlocks<B> {
-    type Record = UNetBlockRecord<B>;
-
-    // Required methods
-    fn visit<V>(&self, visitor: &mut V)
-    where
-        V: ModuleVisitor<B>,
-    {
-        match self {
-            UNetBlocks::Conv(b) => {
-                b.visit(visitor);
-            }
-            UNetBlocks::Res(b) => {
-                b.visit(visitor);
-            }
-            UNetBlocks::Down(b) => {
-                b.visit(visitor);
-            }
-            UNetBlocks::ResT(b) => {
-                b.visit(visitor);
-            }
-            UNetBlocks::ResTU(b) => {
-                b.visit(visitor);
-            }
-            UNetBlocks::ResU(b) => {
-                b.visit(visitor);
-            }
-        };
-    }
-    fn map<M>(self, mapper: &mut M) -> Self
-    where
-        M: ModuleMapper<B>,
-    {
-        match self {
-            UNetBlocks::Conv(b) => UNetBlocks::Conv(b.map(mapper)),
-            UNetBlocks::Res(b) => UNetBlocks::Res(b.map(mapper)),
-            UNetBlocks::Down(b) => UNetBlocks::Down(b.map(mapper)),
-            UNetBlocks::ResT(b) => UNetBlocks::ResT(b.map(mapper)),
-            UNetBlocks::ResTU(b) => UNetBlocks::ResTU(b.map(mapper)),
-            UNetBlocks::ResU(b) => UNetBlocks::ResU(b.map(mapper)),
-        }
-    }
-    fn load_record(self, record: Self::Record) -> Self {
-        match self {
-            UNetBlocks::Conv(b) => {
-                let record = if let UNetBlockRecord::Conv(r) = record {
-                    Some(r)
-                } else {
-                    None
-                };
-                UNetBlocks::Conv(b.load_record(record.unwrap()))
-            }
-            UNetBlocks::Res(b) => {
-                let record = if let UNetBlockRecord::Res(r) = record {
-                    Some(r)
-                } else {
-                    None
-                };
-                UNetBlocks::Res(b.load_record(record.unwrap()))
-            }
-            UNetBlocks::Down(b) => {
-                let record = if let UNetBlockRecord::Down(r) = record {
-                    Some(r)
-                } else {
-                    None
-                };
-                UNetBlocks::Down(b.load_record(record.unwrap()))
-            }
-            UNetBlocks::ResT(b) => {
-                let record = if let UNetBlockRecord::ResT(r) = record {
-                    Some(r)
-                } else {
-                    None
-                };
-                UNetBlocks::ResT(b.load_record(record.unwrap()))
-            }
-
-            UNetBlocks::ResTU(b) => {
-                let record = if let UNetBlockRecord::ResTU(r) = record {
-                    Some(r)
-                } else {
-                    None
-                };
-                UNetBlocks::ResTU(b.load_record(record.unwrap()))
-            }
-
-            UNetBlocks::ResU(b) => {
-                let record = if let UNetBlockRecord::ResU(r) = record {
-                    Some(r)
-                } else {
-                    None
-                };
-                UNetBlocks::ResU(b.load_record(record.unwrap()))
-            }
-        }
-    }
-
-    fn into_record(self) -> Self::Record {
-        match self {
-            UNetBlocks::Conv(b) => UNetBlockRecord::Conv(b.into_record()),
-            UNetBlocks::Res(b) => UNetBlockRecord::Res(b.into_record()),
-            UNetBlocks::Down(b) => UNetBlockRecord::Down(b.into_record()),
-            UNetBlocks::ResT(b) => UNetBlockRecord::ResT(b.into_record()),
-            UNetBlocks::ResTU(b) => UNetBlockRecord::ResTU(b.into_record()),
-            UNetBlocks::ResU(b) => UNetBlockRecord::ResU(b.into_record()),
-        }
-    }
-
-    fn devices(&self) -> Vec<<B as Backend>::Device> {
-        match self {
-            UNetBlocks::Conv(b) => b.devices(),
-            UNetBlocks::Res(b) => b.devices(),
-            UNetBlocks::Down(b) => b.devices(),
-            UNetBlocks::ResT(b) => b.devices(),
-            UNetBlocks::ResTU(b) => b.devices(),
-            UNetBlocks::ResU(b) => b.devices(),
-        }
-    }
-
-    fn fork(self, device: &<B as Backend>::Device) -> Self {
-        match self {
-            UNetBlocks::Conv(b) => UNetBlocks::Conv(b.fork(device)),
-            UNetBlocks::Res(b) => UNetBlocks::Res(b.fork(device)),
-            UNetBlocks::Down(b) => UNetBlocks::Down(b.fork(device)),
-            UNetBlocks::ResT(b) => UNetBlocks::ResT(b.fork(device)),
-            UNetBlocks::ResTU(b) => UNetBlocks::ResTU(b.fork(device)),
-            UNetBlocks::ResU(b) => UNetBlocks::ResU(b.fork(device)),
-        }
-    }
-    fn to_device(self, device: &<B as Backend>::Device) -> Self {
-        match self {
-            UNetBlocks::Conv(b) => UNetBlocks::Conv(b.to_device(device)),
-            UNetBlocks::Res(b) => UNetBlocks::Res(b.to_device(device)),
-            UNetBlocks::Down(b) => UNetBlocks::Down(b.to_device(device)),
-            UNetBlocks::ResT(b) => UNetBlocks::ResT(b.to_device(device)),
-            UNetBlocks::ResTU(b) => UNetBlocks::ResTU(b.to_device(device)),
-            UNetBlocks::ResU(b) => UNetBlocks::ResU(b.to_device(device)),
-        }
-    }
-
-    fn no_grad(self) -> Self {
-        match self {
-            UNetBlocks::Conv(b) => UNetBlocks::Conv(b.no_grad()),
-            UNetBlocks::Res(b) => UNetBlocks::Res(b.no_grad()),
-            UNetBlocks::Down(b) => UNetBlocks::Down(b.no_grad()),
-            UNetBlocks::ResT(b) => UNetBlocks::ResT(b.no_grad()),
-            UNetBlocks::ResTU(b) => UNetBlocks::ResTU(b.no_grad()),
-            UNetBlocks::ResU(b) => UNetBlocks::ResU(b.no_grad()),
-        }
-    }
-    fn num_params(&self) -> usize {
-        match self {
-            UNetBlocks::Conv(b) => b.num_params(),
-            UNetBlocks::Res(b) => b.num_params(),
-            UNetBlocks::Down(b) => b.num_params(),
-            UNetBlocks::ResT(b) => b.num_params(),
-            UNetBlocks::ResTU(b) => b.num_params(),
-            UNetBlocks::ResU(b) => b.num_params(),
-        }
-    }
 }
 
 impl<B: MyBackend> UNetBlocks<B> {
@@ -807,20 +543,20 @@ pub struct ResTransformerConfig {
 }
 
 impl ResTransformerConfig {
-    fn init<B: Backend>(&self) -> ResTransformer<B> {
+    fn init<B: Backend>(&self, device: &B::Device) -> ResTransformer<B> {
         let res = ResBlockConfig::new(
             self.n_channels_in,
             self.n_channels_embed,
             self.n_channels_out,
         )
-        .init();
+        .init(device);
         let transformer = SpatialTransformerConfig::new(
             self.n_channels_out,
             self.n_context_state,
             self.n_head,
             self.n_transformer_blocks,
         )
-        .init();
+        .init(device);
 
         ResTransformer { res, transformer }
     }
@@ -848,15 +584,15 @@ pub struct ResUpsampleConfig {
 }
 
 impl ResUpsampleConfig {
-    fn init<B: Backend>(&self) -> ResUpsample<B> {
+    fn init<B: Backend>(&self, device: &B::Device) -> ResUpsample<B> {
         let res = ResBlockConfig::new(
             self.n_channels_in,
             self.n_channels_embed,
             self.n_channels_out,
         )
-        .init();
+        .init(device);
 
-        let upsample = UpsampleConfig::new(self.n_channels_out).init();
+        let upsample = UpsampleConfig::new(self.n_channels_out).init(device);
 
         ResUpsample { res, upsample }
     }
@@ -887,21 +623,21 @@ pub struct ResTransformerUpsampleConfig {
 }
 
 impl ResTransformerUpsampleConfig {
-    fn init<B: Backend>(&self) -> ResTransformerUpsample<B> {
+    fn init<B: Backend>(&self, device: &B::Device) -> ResTransformerUpsample<B> {
         let res = ResBlockConfig::new(
             self.n_channels_in,
             self.n_channels_embed,
             self.n_channels_out,
         )
-        .init();
+        .init(device);
         let transformer = SpatialTransformerConfig::new(
             self.n_channels_out,
             self.n_context_state,
             self.n_head,
             self.n_transformer_blocks,
         )
-        .init();
-        let upsample = UpsampleConfig::new(self.n_channels_out).init();
+        .init(device);
+        let upsample = UpsampleConfig::new(self.n_channels_out).init(device);
 
         ResTransformerUpsample {
             res,
@@ -938,26 +674,26 @@ pub struct ResTransformerResConfig {
 }
 
 impl ResTransformerResConfig {
-    fn init<B: Backend>(&self) -> ResTransformerRes<B> {
+    fn init<B: Backend>(&self, device: &B::Device) -> ResTransformerRes<B> {
         let res1 = ResBlockConfig::new(
             self.n_channels_in,
             self.n_channels_embed,
             self.n_channels_out,
         )
-        .init();
+        .init(device);
         let transformer = SpatialTransformerConfig::new(
             self.n_channels_out,
             self.n_context_state,
             self.n_head,
             self.n_transformer_blocks,
         )
-        .init();
+        .init(device);
         let res2 = ResBlockConfig::new(
             self.n_channels_in,
             self.n_channels_embed,
             self.n_channels_out,
         )
-        .init();
+        .init(device);
 
         ResTransformerRes {
             res1,
@@ -989,10 +725,10 @@ pub struct UpsampleConfig {
 }
 
 impl UpsampleConfig {
-    fn init<B: Backend>(&self) -> Upsample<B> {
+    fn init<B: Backend>(&self, device: &B::Device) -> Upsample<B> {
         let conv = Conv2dConfig::new([self.n_channels, self.n_channels], [3, 3])
             .with_padding(PaddingConfig2d::Explicit(1, 1))
-            .init();
+            .init(device);
 
         Upsample { conv }
     }
@@ -1027,11 +763,11 @@ pub struct DownsampleConfig {
 }
 
 impl DownsampleConfig {
-    fn init<B: Backend>(&self) -> Conv2d<B> {
+    fn init<B: Backend>(&self, device: &B::Device) -> Conv2d<B> {
         Conv2dConfig::new([self.n_channels, self.n_channels], [3, 3])
             .with_stride([2, 2])
             .with_padding(PaddingConfig2d::Explicit(1, 1))
-            .init()
+            .init(device)
     }
 }
 
@@ -1052,17 +788,17 @@ pub struct SpatialTransformerConfig {
 }
 
 impl SpatialTransformerConfig {
-    fn init<B: Backend>(&self) -> SpatialTransformer<B> {
-        let norm = GroupNormConfig::new(32, self.n_channels).init();
-        let proj_in = nn::LinearConfig::new(self.n_channels, self.n_channels).init(); //Conv2dConfig::new([self.n_channels, self.n_channels], [1, 1]).init();
+    fn init<B: Backend>(&self, device: &B::Device) -> SpatialTransformer<B> {
+        let norm = GroupNormConfig::new(32, self.n_channels).init(device);
+        let proj_in = nn::LinearConfig::new(self.n_channels, self.n_channels).init(device); //Conv2dConfig::new([self.n_channels, self.n_channels], [1, 1]).init(device);
         let blocks = (0..self.n_blocks)
             .into_iter()
             .map(|_| {
                 TransformerBlockConfig::new(self.n_channels, self.n_context_state, self.n_head)
-                    .init()
+                    .init(device)
             })
             .collect();
-        let proj_out = nn::LinearConfig::new(self.n_channels, self.n_channels).init(); //Conv2dConfig::new([self.n_channels, self.n_channels], [1, 1]).init();
+        let proj_out = nn::LinearConfig::new(self.n_channels, self.n_channels).init(device); //Conv2dConfig::new([self.n_channels, self.n_channels], [1, 1]).init(device);
 
         SpatialTransformer {
             norm,
@@ -1116,14 +852,14 @@ pub struct TransformerBlockConfig {
 }
 
 impl TransformerBlockConfig {
-    fn init<B: Backend>(&self) -> TransformerBlock<B> {
-        let norm1 = LayerNormConfig::new(self.n_state).init();
-        let attn1 = MultiHeadAttentionConfig::new(self.n_state, self.n_state, self.n_head).init();
-        let norm2 = LayerNormConfig::new(self.n_state).init();
+    fn init<B: Backend>(&self, device: &B::Device) -> TransformerBlock<B> {
+        let norm1 = LayerNormConfig::new(self.n_state).init(device);
+        let attn1 = MultiHeadAttentionConfig::new(self.n_state, self.n_state, self.n_head).init(device);
+        let norm2 = LayerNormConfig::new(self.n_state).init(device);
         let attn2 =
-            MultiHeadAttentionConfig::new(self.n_state, self.n_context_state, self.n_head).init();
-        let norm3 = LayerNormConfig::new(self.n_state).init();
-        let mlp = MLPConfig::new(self.n_state, 4).init();
+            MultiHeadAttentionConfig::new(self.n_state, self.n_context_state, self.n_head).init(device);
+        let norm3 = LayerNormConfig::new(self.n_state).init(device);
+        let mlp = MLPConfig::new(self.n_state, 4).init(device);
 
         TransformerBlock {
             norm1,
@@ -1161,10 +897,10 @@ pub struct MLPConfig {
 }
 
 impl MLPConfig {
-    pub fn init<B: Backend>(&self) -> MLP<B> {
+    pub fn init<B: Backend>(&self, device: &B::Device) -> MLP<B> {
         let n_state_hidden = self.n_state * self.mult;
-        let geglu = GEGLUConfig::new(self.n_state, n_state_hidden).init();
-        let lin = nn::LinearConfig::new(n_state_hidden, self.n_state).init();
+        let geglu = GEGLUConfig::new(self.n_state, n_state_hidden).init(device);
+        let lin = nn::LinearConfig::new(n_state_hidden, self.n_state).init(device);
 
         MLP { geglu, lin }
     }
@@ -1189,9 +925,9 @@ pub struct GEGLUConfig {
 }
 
 impl GEGLUConfig {
-    fn init<B: Backend>(&self) -> GEGLU<B> {
-        let proj = nn::LinearConfig::new(self.n_state_in, 2 * self.n_state_out).init();
-        let gelu = GELU::new();
+    fn init<B: Backend>(&self, device: &B::Device) -> GEGLU<B> {
+        let proj = nn::LinearConfig::new(self.n_state_in, 2 * self.n_state_out).init(device);
+        let gelu = Gelu::new();
 
         GEGLU { proj, gelu }
     }
@@ -1200,7 +936,7 @@ impl GEGLUConfig {
 #[derive(Module, Debug)]
 pub struct GEGLU<B: Backend> {
     proj: nn::Linear<B>,
-    gelu: GELU,
+    gelu: Gelu,
 }
 
 impl<B: Backend> GEGLU<B> {
@@ -1227,7 +963,7 @@ pub struct MultiHeadAttentionConfig {
 }
 
 impl MultiHeadAttentionConfig {
-    fn init<B: Backend>(&self) -> MultiHeadAttention<B> {
+    fn init<B: Backend>(&self, device: &B::Device) -> MultiHeadAttention<B> {
         assert!(
             self.n_state % self.n_head == 0,
             "State size {} must be a multiple of head size {}",
@@ -1238,14 +974,14 @@ impl MultiHeadAttentionConfig {
         let n_head = self.n_head;
         let query = nn::LinearConfig::new(self.n_state, self.n_state)
             .with_bias(false)
-            .init();
+            .init(device);
         let key = nn::LinearConfig::new(self.n_context_state, self.n_state)
             .with_bias(false)
-            .init();
+            .init(device);
         let value = nn::LinearConfig::new(self.n_context_state, self.n_state)
             .with_bias(false)
-            .init();
-        let out = nn::LinearConfig::new(self.n_state, self.n_state).init();
+            .init(device);
+        let out = nn::LinearConfig::new(self.n_state, self.n_state).init(device);
 
         MultiHeadAttention {
             n_head,
@@ -1294,24 +1030,24 @@ pub struct ResBlockConfig {
 }
 
 impl ResBlockConfig {
-    fn init<B: Backend>(&self) -> ResBlock<B> {
-        let norm_in = GroupNormConfig::new(32, self.n_channels_in).init();
+    fn init<B: Backend>(&self, device: &B::Device) -> ResBlock<B> {
+        let norm_in = GroupNormConfig::new(32, self.n_channels_in).init(device);
         let silu_in = SILU::new();
         let conv_in = Conv2dConfig::new([self.n_channels_in, self.n_channels_out], [3, 3])
             .with_padding(PaddingConfig2d::Explicit(1, 1))
-            .init();
+            .init(device);
 
         let silu_embed = SILU::new();
-        let lin_embed = nn::LinearConfig::new(self.n_channels_embed, self.n_channels_out).init();
+        let lin_embed = nn::LinearConfig::new(self.n_channels_embed, self.n_channels_out).init(device);
 
-        let norm_out = GroupNormConfig::new(32, self.n_channels_out).init();
+        let norm_out = GroupNormConfig::new(32, self.n_channels_out).init(device);
         let silu_out = SILU::new();
         let conv_out = Conv2dConfig::new([self.n_channels_out, self.n_channels_out], [3, 3])
             .with_padding(PaddingConfig2d::Explicit(1, 1))
-            .init();
+            .init(device);
 
         let skip_connection = if self.n_channels_in != self.n_channels_out {
-            Some(Conv2dConfig::new([self.n_channels_in, self.n_channels_out], [1, 1]).init())
+            Some(Conv2dConfig::new([self.n_channels_in, self.n_channels_out], [1, 1]).init(device))
         } else {
             None
         };

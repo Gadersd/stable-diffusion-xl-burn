@@ -20,36 +20,38 @@ use burn::{
     tensor::{self, Tensor},
 };
 
-use burn_tch::{TchBackend, TchDevice};
+use burn_tch::{LibTorch, LibTorchDevice};
 
-use burn::record::{self, BinFileRecorder, HalfPrecisionSettings, Recorder};
+use burn::record::{self, NamedMpkFileRecorder, HalfPrecisionSettings, Recorder};
 
-fn load_embedder_model<B: Backend>(model_name: &str) -> Result<Embedder<B>, Box<dyn Error>> {
+fn load_embedder_model<B: Backend>(model_name: &str, device: &B::Device) -> Result<Embedder<B>, Box<dyn Error>> {
     let config = EmbedderConfig::load(&format!("{}.cfg", model_name))?;
-    let record = BinFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into())?;
+    let record = NamedMpkFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into(), device)?;
 
-    Ok(config.init().load_record(record))
+    Ok(config.init(device).load_record(record))
 }
 
-fn load_diffuser_model<B: Backend>(model_name: &str) -> Result<Diffuser<B>, Box<dyn Error>> {
+fn load_diffuser_model<B: Backend>(model_name: &str, device: &B::Device) -> Result<Diffuser<B>, Box<dyn Error>> {
     let config = DiffuserConfig::load(&format!("{}.cfg", model_name))?;
-    let record = BinFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into())?;
+    let record = NamedMpkFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into(), device)?;
+    //let record = NamedMpkFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into(), device)?;
 
-    Ok(config.init().load_record(record))
+    Ok(config.init(device).load_record(record))
 }
 
 fn load_latent_decoder_model<B: Backend>(
     model_name: &str,
+    device: &B::Device
 ) -> Result<LatentDecoder<B>, Box<dyn Error>> {
     let config = LatentDecoderConfig::load(&format!("{}.cfg", model_name))?;
-    let record = BinFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into())?;
+    let record = NamedMpkFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into(), device)?;
 
-    Ok(config.init().load_record(record))
+    Ok(config.init(device).load_record(record))
 }
 
-fn arb_tensor<B: Backend, const D: usize>(dims: [usize; D]) -> Tensor<B, D> {
-    let prod = dims.iter().cloned().product();
-    Tensor::arange(0..prod).float().sin().reshape(dims)
+fn arb_tensor<B: Backend, const D: usize>(dims: [usize; D], device: &B::Device) -> Tensor<B, D> {
+    let prod: usize = dims.iter().cloned().product();
+    Tensor::arange(0..prod as i64, device).float().sin().reshape(dims)
 }
 
 use stablediffusion::token::{clip::ClipTokenizer, open_clip::OpenClipTokenizer, Tokenizer};
@@ -60,11 +62,13 @@ use stablediffusion::model::stablediffusion::Conditioning;
 
 use stablediffusion::backend_converter::*;
 
-fn main() {
-    type Backend = TchBackend<f32>;
-    type Backend_f16 = TchBackend<tensor::f16>;
+use burn::tensor::Bool;
 
-    let device = TchDevice::Cuda(0);
+fn main() {
+    type Backend = LibTorch<f32>;
+    type Backend_f16 = LibTorch<tensor::f16>;
+
+    let device = LibTorchDevice::Cuda(0);
 
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 7 {
@@ -77,6 +81,8 @@ fn main() {
         "y" => true,
         _ => false,
     };
+
+
     let unconditional_guidance_scale: f64 = args[3].parse().unwrap_or_else(|_| {
         eprintln!("Error: Invalid unconditional guidance scale.");
         process::exit(1);
@@ -91,14 +97,14 @@ fn main() {
     let conditioning = {
         println!("Loading embedder...");
         let embedder: Embedder<Backend> =
-            load_embedder_model(&format!("{}/embedder", model_name)).unwrap();
+            load_embedder_model(&format!("{}/embedder", model_name), &device).unwrap();
         let embedder = embedder.to_device(&device);
 
         let resolution = [1024, 1024]; //RESOLUTIONS[8];
 
-        let size = Tensor::from_ints(resolution).to_device(&device).unsqueeze();
-        let crop = Tensor::from_ints([0, 0]).to_device(&device).unsqueeze();
-        let ar = Tensor::from_ints(resolution).to_device(&device).unsqueeze();
+        let size = Tensor::from_ints(resolution, &device).unsqueeze();
+        let crop = Tensor::from_ints([0, 0], &device).unsqueeze();
+        let ar = Tensor::from_ints(resolution, &device).unsqueeze();
 
         println!("Running embedder...");
         embedder.text_to_conditioning(prompt, size, crop, ar)
@@ -110,7 +116,7 @@ fn main() {
     let latent = {
         println!("Loading diffuser...");
         let diffuser: Diffuser<Backend_f16> =
-            load_diffuser_model(&format!("{}/diffuser", model_name)).unwrap();
+            load_diffuser_model(&format!("{}/diffuser", model_name), &device).unwrap();
         let diffuser = diffuser.to_device(&device);
 
         println!("Running diffuser...");
@@ -120,7 +126,7 @@ fn main() {
     let latent = if use_refiner {
         println!("Loading refiner...");
         let diffuser: Diffuser<Backend_f16> =
-            load_diffuser_model(&format!("{}/refiner", model_name)).unwrap();
+            load_diffuser_model(&format!("{}/refiner", model_name), &device).unwrap();
         let diffuser = diffuser.to_device(&device);
 
         println!("Running refiner...");
@@ -140,7 +146,7 @@ fn main() {
     let images = {
         println!("Loading latent decoder...");
         let latent_decoder: LatentDecoder<Backend> =
-            load_latent_decoder_model(&format!("{}/latent_decoder", model_name)).unwrap();
+            load_latent_decoder_model(&format!("{}/latent_decoder", model_name), &device).unwrap();
         let latent_decoder = latent_decoder.to_device(&device);
 
         println!("Running decoder...");

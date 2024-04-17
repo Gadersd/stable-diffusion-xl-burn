@@ -35,6 +35,6 @@ impl<B2: Backend> BackendConverter<B2> for DefaultBackendConverter<B2> {
             data.shape,
         );
 
-        Tensor::from_data_device(data, device)
+        Tensor::from_data(data, device)
     }
 }

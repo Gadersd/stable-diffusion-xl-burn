@@ -15,9 +15,9 @@ use burn::{
     tensor::{self, backend::Backend, Tensor},
 };
 
-use burn_tch::{TchBackend, TchDevice};
+use burn_tch::{LibTorch, LibTorchDevice};
 
-use burn::record::{self, BinFileRecorder, HalfPrecisionSettings, Recorder};
+use burn::record::{self, NamedMpkFileRecorder, HalfPrecisionSettings, Recorder};
 
 fn convert_embedder_dump_to_model<B: Backend>(
     dump_path: &str,
@@ -66,7 +66,7 @@ fn save_model_file<B: Backend, M: Module<B>>(
     model: M,
     name: &str,
 ) -> Result<(), record::RecorderError> {
-    BinFileRecorder::<HalfPrecisionSettings>::new().record(model.into_record(), name.into())
+    NamedMpkFileRecorder::<HalfPrecisionSettings>::new().record(model.into_record(), name.into())
 }
 
 fn main() {
@@ -78,15 +78,15 @@ fn main() {
         }
     };
 
-    type Backend = TchBackend<f32>;
-    let device = TchDevice::Cpu;
+    type Backend = LibTorch<f32>;
+    let device = LibTorchDevice::Cpu;
 
     println!("Saving embedder...");
     match convert_embedder_dump_to_model::<Backend>(&params, "embedder", &device) {
         Ok(_) => (),
         Err(e) => {
             eprintln!("Error converting embedder: {}", e);
-            //std::process::exit(1);
+            std::process::exit(1);
         }
     }
 
@@ -95,7 +95,7 @@ fn main() {
         Ok(_) => (),
         Err(e) => {
             eprintln!("Error converting diffuser: {}", e);
-            //std::process::exit(1);
+            std::process::exit(1);
         }
     }
 
@@ -104,7 +104,7 @@ fn main() {
         Ok(_) => (),
         Err(e) => {
             eprintln!("Error converting refiner: {}", e);
-            //std::process::exit(1);
+            std::process::exit(1);
         }
     }
 
@@ -113,7 +113,7 @@ fn main() {
         Ok(_) => (),
         Err(e) => {
             eprintln!("Error converting latent decoder: {}", e);
-            //std::process::exit(1);
+            std::process::exit(1);
         }
     }
 

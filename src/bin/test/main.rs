@@ -20,36 +20,37 @@ use burn::{
     tensor::{self, Tensor},
 };
 
-use burn_tch::{TchBackend, TchDevice};
+use burn_tch::{LibTorch, LibTorchDevice};
 
 use burn::record::{self, BinFileRecorder, HalfPrecisionSettings, Recorder};
 
-fn load_embedder_model<B: Backend>(model_name: &str) -> Result<Embedder<B>, Box<dyn Error>> {
+fn load_embedder_model<B: Backend>(model_name: &str, device: &B::Device) -> Result<Embedder<B>, Box<dyn Error>> {
     let config = EmbedderConfig::load(&format!("{}.cfg", model_name))?;
-    let record = BinFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into())?;
+    let record = BinFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into(), device)?;
 
-    Ok(config.init().load_record(record))
+    Ok(config.init(device).load_record(record))
 }
 
-fn load_diffuser_model<B: Backend>(model_name: &str) -> Result<Diffuser<B>, Box<dyn Error>> {
+fn load_diffuser_model<B: Backend>(model_name: &str, device: &B::Device) -> Result<Diffuser<B>, Box<dyn Error>> {
     let config = DiffuserConfig::load(&format!("{}.cfg", model_name))?;
-    let record = BinFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into())?;
+    let record = BinFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into(), device)?;
 
-    Ok(config.init().load_record(record))
+    Ok(config.init(device).load_record(record))
 }
 
 fn load_latent_decoder_model<B: Backend>(
     model_name: &str,
+    device: &B::Device
 ) -> Result<LatentDecoder<B>, Box<dyn Error>> {
     let config = LatentDecoderConfig::load(&format!("{}.cfg", model_name))?;
-    let record = BinFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into())?;
+    let record = BinFileRecorder::<HalfPrecisionSettings>::new().load(model_name.into(), device)?;
 
-    Ok(config.init().load_record(record))
+    Ok(config.init(device).load_record(record))
 }
 
-fn arb_tensor<B: Backend, const D: usize>(dims: [usize; D]) -> Tensor<B, D> {
-    let prod = dims.iter().cloned().product();
-    Tensor::arange(0..prod).float().sin().reshape(dims)
+fn arb_tensor<B: Backend, const D: usize>(dims: [usize; D], device: &B::Device) -> Tensor<B, D> {
+    let prod: usize = dims.iter().cloned().product();
+    Tensor::arange(0..prod as i64, device).float().sin().reshape(dims)
 }
 
 use stablediffusion::token::{clip::ClipTokenizer, open_clip::OpenClipTokenizer, Tokenizer};
@@ -95,7 +96,7 @@ fn test_clip<B: Backend>(device: &B::Device) {
     tokenized.resize(77, tokenizer.padding_token() as i32);
     println!("Tokens = {:?}", tokenized);
 
-    let tokens = Tensor::from_ints(&tokenized[..]).unsqueeze();
+    let tokens = Tensor::from_ints(&tokenized[..], device).unsqueeze();
     let output = encoder.forward_hidden(tokens, 11);
     println!("Output: {:?}", output.into_data());
 }
@@ -117,7 +118,7 @@ fn test_open_clip<B: Backend>(device: &B::Device) {
     tokenized.resize(77, tokenizer.padding_token() as i32);
     println!("Tokens = {:?}", tokenized);
 
-    let tokens = Tensor::from_ints(&tokenized[..]).unsqueeze();
+    let tokens = Tensor::from_ints(&tokenized[..], device).unsqueeze();
     let n_layers = encoder.num_layers();
     let (output, pooled) = encoder.forward_hidden_pooled(tokens, n_layers - 1); // penultimate layer
     println!("Output: {:?}\n\n", output.into_data());
@@ -129,10 +130,10 @@ fn test_tiny_unet<B: Backend>(device: &B::Device) {
     let unet: UNet<B> = load_unet("params", device).unwrap();
 
     println!("Sampling...");
-    let x = arb_tensor([1, 4, 4, 4]); //Tensor::zeros([1, 4, 4, 4]);
-    let context = arb_tensor([1, 1, 20]); //Tensor::zeros([1, 1, 20]);
-    let y = arb_tensor([1, 8]); //Tensor::zeros([1, 8]);
-    let t = Tensor::from_ints([1]).unsqueeze();
+    let x = arb_tensor([1, 4, 4, 4], device); //Tensor::zeros([1, 4, 4, 4]);
+    let context = arb_tensor([1, 1, 20], device); //Tensor::zeros([1, 1, 20]);
+    let y = arb_tensor([1, 8], device); //Tensor::zeros([1, 8]);
+    let t = Tensor::from_ints([1], device).unsqueeze();
     let output = unet.forward(x, t, context, y);
 
     println!("Output: {:?}", output.into_data());
@@ -143,7 +144,7 @@ fn test_tiny_encoder<B: Backend>(device: &B::Device) {
     let encoder: Encoder<B> = load_encoder("params", device).unwrap();
 
     println!("Sampling...");
-    let x = arb_tensor([1, 3, 16, 16]);
+    let x = arb_tensor([1, 3, 16, 16], device);
     let output = encoder.forward(x);
 
     println!("Output: {:?}", output.into_data());
@@ -154,7 +155,7 @@ fn test_tiny_decoder<B: Backend>(device: &B::Device) {
     let decoder: Decoder<B> = load_decoder("params", device).unwrap();
 
     println!("Sampling...");
-    let x = arb_tensor([1, 4, 4, 4]);
+    let x = arb_tensor([1, 4, 4, 4], device);
     let output = decoder.forward(x);
 
     println!("Output: {:?}", output.into_data());
@@ -170,11 +171,11 @@ fn main() {
     //type Backend = NdArrayBackend<f32>;
     //let device = NdArrayDevice::Cpu;
 
-    type Backend = TchBackend<f32>;
-    type Backend_f16 = TchBackend<tensor::f16>;
+    type Backend = LibTorch<f32>;
+    type Backend_f16 = LibTorch<tensor::f16>;
 
-    let cpu_device = TchDevice::Cpu;
-    let device = /*TchDevice::Cpu;*/ TchDevice::Cuda(0);
+    let cpu_device = LibTorchDevice::Cpu;
+    let device = /*TchDevice::Cpu;*/ LibTorchDevice::Cuda(0);
 
     //test_clip::<Backend>(&device);
     //test_tiny_open_clip::<Backend>(&device);
@@ -184,14 +185,14 @@ fn main() {
 
     let conditioning = {
         println!("Loading embedder...");
-        let embedder: Embedder<Backend> = load_embedder_model("embedder").unwrap();
+        let embedder: Embedder<Backend> = load_embedder_model("embedder", &device).unwrap();
         let embedder = embedder.to_device(&device);
 
         let resolution = RESOLUTIONS[8];
 
-        let size = Tensor::from_ints(resolution).to_device(&device).unsqueeze();
-        let crop = Tensor::from_ints([0, 0]).to_device(&device).unsqueeze();
-        let ar = Tensor::from_ints(resolution).to_device(&device).unsqueeze();
+        let size = Tensor::from_ints(resolution, &device).unsqueeze();
+        let crop = Tensor::from_ints([0, 0], &device).unsqueeze();
+        let ar = Tensor::from_ints(resolution, &device).unsqueeze();
 
         println!("Running embedder...");
         embedder.text_to_conditioning(text, size, crop, ar)
@@ -202,7 +203,7 @@ fn main() {
 
     let latent = {
         println!("Loading diffuser...");
-        let diffuser: Diffuser<Backend_f16> = load_diffuser_model("diffuser").unwrap();
+        let diffuser: Diffuser<Backend_f16> = load_diffuser_model("diffuser", &device).unwrap();
         let diffuser = diffuser.to_device(&device);
 
         let unconditional_guidance_scale = 7.5;
@@ -217,7 +218,7 @@ fn main() {
     let images = {
         println!("Loading latent decoder...");
         let latent_decoder: LatentDecoder<Backend> =
-            load_latent_decoder_model("latent_decoder").unwrap();
+            load_latent_decoder_model("latent_decoder", &device).unwrap();
         let latent_decoder = latent_decoder.to_device(&device);
 
         println!("Running decoder...");

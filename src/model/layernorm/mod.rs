@@ -14,9 +14,9 @@ pub struct LayerNormConfig {
 }
 
 impl LayerNormConfig {
-    pub fn init<B: Backend>(&self) -> LayerNorm<B> {
-        let gamma = Tensor::ones([self.d_size]).into();
-        let beta = Tensor::zeros([self.d_size]).into();
+    pub fn init<B: Backend>(&self, device: &B::Device) -> LayerNorm<B> {
+        let gamma = Param::from_tensor(Tensor::ones([self.d_size], device));
+        let beta = Param::from_tensor(Tensor::zeros([self.d_size], device));
 
         let eps = self.eps;
 

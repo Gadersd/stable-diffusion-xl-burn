@@ -21,7 +21,7 @@ pub fn numpy_to_tensor<B: Backend, const D: usize>(
     let shape: Vec<_> = v[0..D].into_iter().map(|&v| v as usize).collect();
     let data: Vec<B::FloatElem> = v[D..].into_iter().map(|e| e.elem()).collect();
 
-    Tensor::from_data_device(Data::new(data, shape.into()), device)
+    Tensor::from_data(Data::new(data, shape.into()), device)
 }
 
 pub fn load_tensor<B: Backend, const D: usize>(
@@ -66,12 +66,10 @@ pub fn load_linear<B: Backend>(
     let weight = load_tensor::<B, 2>("weight", path, device)?;
     let bias = load_tensor::<B, 1>("bias", path, device).ok();
 
-    let record = nn::LinearRecord {
-        weight: weight.into(),
-        bias: bias.map(|t| t.into()),
-    };
+    let mut linear: nn::Linear<B> = nn::LinearConfig::new(3, 3).init(device);
+    linear.weight = Param::from_tensor(weight);
+    linear.bias = bias.map(Param::from_tensor);
 
-    let linear: nn::Linear<B> = nn::LinearConfig::new(3, 3).init_with(record);
     Ok(linear)
 }
 
@@ -82,11 +80,9 @@ pub fn load_embedding<B: Backend>(
     let weight = load_tensor::<B, 2>("weight", path, device)?;
     let [n_vocab, n_state] = weight.dims();
 
-    let record = nn::EmbeddingRecord {
-        weight: weight.into(),
-    };
+    let mut embedding = nn::EmbeddingConfig::new(n_vocab, n_state).init(device);
+    embedding.weight = Param::from_tensor(weight);
 
-    let embedding = nn::EmbeddingConfig::new(n_vocab, n_state).init_with(record);
     Ok(embedding)
 }
 
@@ -145,24 +141,17 @@ pub fn load_conv2d<B: Backend>(
     let padding = tensor_to_array_2(padding);
     let padding = nn::PaddingConfig2d::Explicit(padding[0], padding[1]);
 
-    let record = conv::Conv2dRecord {
-        weight: weight.into(),
-        bias: bias.map(|t| t.into()),
-        stride: <[usize; 2] as Module<B>>::into_record(stride),
-        kernel_size: <[usize; 2] as Module<B>>::into_record(kernel_size),
-        dilation: <[usize; 2] as Module<B>>::into_record(dilation),
-        groups: <usize as Module<B>>::into_record(n_group),
-        padding: <nn::PaddingConfig2d as Module<B>>::into_record(padding.clone()),
-    };
-
-    let conv2d: conv::Conv2d<B> =
+    let mut conv2d: conv::Conv2d<B> =
         conv::Conv2dConfig::new([n_channels_in, n_channels_out], kernel_size)
             .with_stride(stride)
             .with_dilation(dilation)
             .with_groups(n_group)
             .with_padding(padding)
             .with_bias(has_bias)
-            .init_with(record);
+            .init(device);
+    conv2d.weight = Param::from_tensor(weight);
+    conv2d.bias = bias.map(Param::from_tensor);
+
     Ok(conv2d)
 }
 

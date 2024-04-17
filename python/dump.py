@@ -34,6 +34,7 @@ def dump_base(model):
     ac = alphas_cumprod()
     save.save_scalar(ac.shape[0], 'n_steps', "params")
     save.save_tensor(ac, "alphas_cumprod", "params")
+    save.save_scalar(0.13025, 'scale_factor', "params")
 
     clipsave.save_clip_text_transformer(model.conditioner.embedders[0].transformer.text_model, "params/clip")
     clipsave.save_open_clip_text_transformer(model.conditioner.embedders[1].model, "params/open_clip")
@@ -55,7 +56,7 @@ def dump_refiner(model):
 
 if __name__ == "__main__":
     base_pipeline = SamplingPipeline(ModelArchitecture.SDXL_V1_BASE, device = "cpu")
-    dump(base_pipeline.model)
+    dump_base(base_pipeline.model)
 
     refiner_pipeline = SamplingPipeline(ModelArchitecture.SDXL_V1_REFINER, device = "cpu")
     dump_refiner(refiner_pipeline.model)

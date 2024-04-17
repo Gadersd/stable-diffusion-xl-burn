@@ -19,7 +19,7 @@ pub fn load_mlp<B: Backend>(
 ) -> Result<MLP<B>, Box<dyn Error>> {
     let fc1 = load_linear(&format!("{}/{}", path, "fc1"), device)?;
     let qgelu = QuickGELU::new();
-    let gelu = nn::GELU::new();
+    let gelu = nn::Gelu::new();
     let fc2 = load_linear(&format!("{}/{}", path, "fc2"), device)?;
 
     let uses_quick_gelu = !is_open_clip;
@@ -83,7 +83,7 @@ pub fn load_clip_text_transformer<B: Backend>(
 ) -> Result<CLIP<B>, Box<dyn Error>> {
     let token_embedding = load_embedding(&format!("{}/{}", path, "token_embedding"), device)?;
     let position_embedding =
-        load_tensor("weight", &format!("{}/position_embedding", path), device)?.into();
+        Param::from_tensor(load_tensor("weight", &format!("{}/position_embedding", path), device)?);
 
     let n_layer = load_usize::<B>("n_layer", path, device)?;
     let blocks = (0..n_layer)
@@ -101,7 +101,7 @@ pub fn load_clip_text_transformer<B: Backend>(
 
     let text_projection = load_tensor("text_projection", path, device)
         .ok()
-        .map(|m| m.into());
+        .map(Param::from_tensor);
 
     let clip = CLIP {
         token_embedding: token_embedding,

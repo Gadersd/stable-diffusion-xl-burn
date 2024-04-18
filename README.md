@@ -52,6 +52,12 @@ cargo run --release --bin sample \
 
 ![An image of a crab with the ocean visible](inpainted0.png)
 
+Execute the following to see all available options.
+
+```bash
+cargo run --release --bin sample -- --help
+```
+
 ### Converting Model Files to Burn's Format
 
 Download the Python generative-models repo and install the dependencies.

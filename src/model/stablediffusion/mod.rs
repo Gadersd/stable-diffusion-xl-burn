@@ -5,6 +5,8 @@ use burn::{
     module::{Module, Param},
     tensor::{backend::Backend, BasicOps, Data, Distribution, Float, Int, Tensor},
 };
+use burn::prelude::*;
+use burn::tensor::ElementConversion;
 
 use num_traits::ToPrimitive;
 
@@ -234,8 +236,28 @@ impl<B: MyBackend> LatentDecoder<B> {
         }
     }
 
+    pub fn image_to_latent(&self, images: &RawImages, device: &B::Device) -> Tensor<B, 4> {
+        let n_images = images.buffer.len();
+        let n_channel = 3;
+
+        let data = images.buffer.iter().map(|v| v.iter().map(|v| v.elem())).flatten().collect();
+        let shape = [n_images, images.height, images.width, n_channel];
+
+        // transform elements to between -1 and 1 and change dims to [n_batch, n_channel, height, width]
+        let pre_latent = Tensor::from_data(Data::new(data, shape.into()), device)
+            .div_scalar(255.0)
+            .swap_dims(2, 3)
+            .swap_dims(1, 2)
+            .mul_scalar(2.0)
+            .sub_scalar(1.0);
+
+        self.encode_image(pre_latent)
+    }
+
     pub fn encode_image(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
-        self.autoencoder.encode_image(x * self.scale_factor)
+        self.autoencoder
+            .encode_image(x)
+            .mul_scalar(self.scale_factor)
     }
 
     pub fn decode_latent(&self, x: Tensor<B, 4>) -> Tensor<B, 4> {
@@ -309,6 +331,27 @@ impl<B: MyBackend> Diffuser<B> {
         )
     }
 
+    pub fn sample_latent_with_inpainting(
+        &self,
+        conditioning: Conditioning<B>,
+        unconditional_guidance_scale: f64,
+        n_steps: usize,
+        reference: Tensor<B, 4>, 
+        mask: Tensor<B, 4, Bool>, 
+    ) -> Tensor<B, 4> {
+        let latent = Self::gen_noise(&conditioning);
+
+        self.diffuse_latent_with_inpainting(
+            latent,
+            conditioning,
+            0,
+            n_steps,
+            unconditional_guidance_scale,
+            reference, 
+            mask, 
+        )
+    }
+
     pub fn refine_latent(
         &self,
         latent: Tensor<B, 4>,
@@ -318,13 +361,7 @@ impl<B: MyBackend> Diffuser<B> {
         n_steps: usize,
     ) -> Tensor<B, 4> {
         let t = self.n_steps - step_start; // last step is beginning of diffusion
-        let start_alpha: f64 = self
-            .alpha_cumulative_products
-            .val()
-            .slice([t..t + 1])
-            .into_scalar()
-            .to_f64()
-            .unwrap();
+        let start_alpha: f64 = self.get_alpha(t);
 
         let noised_latent = latent * start_alpha.sqrt()
             + Self::gen_noise(&conditioning) * (1.0 - start_alpha).sqrt();
@@ -367,21 +404,9 @@ impl<B: MyBackend> Diffuser<B> {
         let step_start = self.n_steps - step_start;
 
         for t in (0..step_start).rev().step_by(step_size) {
-            let current_alpha: f64 = self
-                .alpha_cumulative_products
-                .val()
-                .slice([t..t + 1])
-                .into_scalar()
-                .to_f64()
-                .unwrap();
+            let current_alpha: f64 = self.get_alpha(t);
             let prev_alpha: f64 = if t >= step_size {
-                let i = t - step_size;
-                self.alpha_cumulative_products
-                    .val()
-                    .slice([i..i + 1])
-                    .into_scalar()
-                    .to_f64()
-                    .unwrap()
+                self.get_alpha(t - step_size)
             } else {
                 1.0
             };
@@ -404,6 +429,66 @@ impl<B: MyBackend> Diffuser<B> {
         }
 
         latent
+    }
+
+    fn diffuse_latent_with_inpainting(
+        &self,
+        mut latent: Tensor<B, 4>,
+        conditioning: Conditioning<B>,
+        step_start: usize,
+        n_steps: usize,
+        unconditional_guidance_scale: f64,
+        reference: Tensor<B, 4>, 
+        mask: Tensor<B, 4, Bool>, 
+    ) -> Tensor<B, 4> {
+        let device = latent.device();
+
+        let step_size = self.n_steps / n_steps;
+
+        let sigma = 0.0; // Use deterministic diffusion
+
+        let step_start = self.n_steps - step_start;
+
+        for t in (0..step_start).rev().step_by(step_size) {
+            let current_alpha: f64 = self.get_alpha(t);
+            let prev_alpha: f64 = if t >= step_size {
+                self.get_alpha(t - step_size)
+            } else {
+                1.0
+            };
+
+            let sqrt_noise = (1.0 - current_alpha).sqrt();
+
+            // combine with reference for inpainting
+            let noised_reference = reference.clone() * current_alpha.sqrt()
+                + Self::gen_noise(&conditioning) * sqrt_noise;
+            latent = noised_reference.mask_where(mask.clone(), latent);
+
+            let timestep = Tensor::from_ints([t as i32], &device);
+            let pred_noise = self.forward_diffuser(
+                latent.clone(),
+                timestep,
+                conditioning.clone(),
+                unconditional_guidance_scale,
+            );
+            let predx0 = (latent - pred_noise.clone() * sqrt_noise) / current_alpha.sqrt();
+            let dir_latent = pred_noise * (1.0 - prev_alpha - sigma * sigma).sqrt();
+
+            let prev_latent =
+                predx0 * prev_alpha.sqrt() + dir_latent + Self::gen_noise(&conditioning) * sigma;
+            latent = prev_latent;
+        }
+
+        latent
+    }
+
+    fn get_alpha(&self, i: usize) -> f64 {
+        self.alpha_cumulative_products
+            .val()
+            .slice([i..i + 1])
+            .into_scalar()
+            .to_f64()
+            .unwrap()
     }
 
     fn forward_diffuser(

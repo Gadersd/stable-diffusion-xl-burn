@@ -84,7 +84,7 @@ impl EncoderConfig {
             .first()
             .map(|f| f.1)
             .expect("Channels must not be empty.");
-        let n_expanded_channels_final = self.channels.first().unwrap().0;
+        let n_expanded_channels_final = self.channels.last().unwrap().0;
 
         let conv_in = Conv2dConfig::new([3, n_expanded_channels_initial], [3, 3])
             .with_padding(PaddingConfig2d::Explicit(1, 1))
@@ -502,6 +502,7 @@ impl<B: MyBackend> ResnetBlock<B> {
         let h = self
             .conv1
             .forward(self.silu1.forward(self.norm1.forward(x.clone())));
+
         let h = self
             .conv2
             .forward(self.silu2.forward(self.norm2.forward(h)));

@@ -28,14 +28,29 @@ wget https://huggingface.co/Gadersd/stable-diffusion-xl-burn/resolve/main/SDXL1.
 Invoke the sample binary provided in the rust code. You will need a CUDA GPU with at least 10 GB of VRAM.
 
 ```bash
-export TORCH_CUDA_VERSION=cu113
-# Arguments: <model> <refiner(y/n)> <unconditional_guidance_scale> <n_diffusion_steps> <prompt> <output_image>
-cargo run --release --bin sample SDXL1.0 n 7.5 30 "An elegant bright red crab." crab
+cargo run --release --bin sample -- --model-dir SDXL1.0 --output-dir ./ --prompt "An elegant bright red crab."
 ```
 
-This command will generate an image according to the provided prompt, which will be saved as 'crab0.png'.
+This command will generate an image according to the provided prompt, which will be saved as '0.png'.
 
-![An image of an ancient mossy stone](crab0.png)
+![An image of a crab](crab0.png)
+
+One can also perform inpainting. Use a large number of steps to achieve the best coherence.
+
+```bash
+cargo run --release --bin sample \
+  -- --model-dir SDXL1.0 \
+     --output-dir ./inpainted \
+     --prompt "An crab below a bright blue shining ocean." \
+     --reference-img 0.png \
+     --n-diffusion-steps 100 \
+     --crop-left 0 \
+     --crop-right 1024 \
+     --crop-top 0 \
+     --crop-bottom 200
+```
+
+![An image of a crab with the ocean visible](inpainted0.png)
 
 ### Converting Model Files to Burn's Format
 

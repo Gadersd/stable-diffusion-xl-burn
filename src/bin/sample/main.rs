@@ -122,6 +122,7 @@ type TorchBackend = LibTorch<f32>;
 type Backend_f16 = LibTorch<tensor::f16>;
 
 struct InpaintingTensors {
+    orig_dims: (usize, usize), 
     reference_latent: Tensor<Backend_f16, 4>, 
     mask: Tensor<Backend_f16, 4, Bool>, 
 }
@@ -181,6 +182,7 @@ fn main() {
         };
 
         InpaintingTensors {
+            orig_dims: (imgs.width, imgs.height), 
             reference_latent: latent, 
             mask: mask.unsqueeze::<4>(), 
         }
@@ -209,7 +211,11 @@ fn main() {
         let embedder: Embedder<TorchBackend> =
             load_embedder_model(&format!("{}/embedder", opts.model_dir.to_str().unwrap()), &device).unwrap();
 
-        let resolution = [1024, 1024]; //RESOLUTIONS[8];
+        let resolution = if let Some(inpainting_info) = inpainting_info.as_ref() {
+            [inpainting_info.orig_dims.1 as i32, inpainting_info.orig_dims.0 as i32]
+        } else {
+            [1024, 1024]
+        }; //RESOLUTIONS[8];
 
         let size = Tensor::from_ints(resolution, &device).unsqueeze();
         let crop = Tensor::from_ints([0, 0], &device).unsqueeze();

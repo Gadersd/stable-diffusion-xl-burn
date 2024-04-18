@@ -135,6 +135,14 @@ fn main() {
     let inpainting_info = opts.reference_img.map(|ref_dir| {
         let imgs = load_images(&[ref_dir.to_str().unwrap().into()]).unwrap();
 
+        if !RESOLUTIONS.iter().any(|&[h, w]| h as usize == imgs.height && w as usize == imgs.width) {
+            println!("Reference image dimensions are incompatible.\nThe compatible dimensions are:");
+            for [h, w] in RESOLUTIONS {
+                println!("Width: {}, Height: {}", w, h);
+            }
+            process::exit(1);
+        }
+
         let crop_left = opts.crop_left.unwrap_or(0);
         let crop_right = opts.crop_right.unwrap_or(imgs.width);
         let crop_top = opts.crop_top.unwrap_or(0);
